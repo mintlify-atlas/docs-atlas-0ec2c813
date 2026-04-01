@@ -1,0 +1,111 @@
+---
+title: "Storage"
+description: "NixOS modules for ZFS filesystem layout, boot configuration, hardware detection, PostgreSQL, and removable media."
+---
+
+The storage modules handle everything from disk layout and bootloader to database and removable media management. ZFS is the primary filesystem across all bare-metal hosts.
+
+## ZFS (`zfs.nix`)
+
+ZFS is enabled as a supported filesystem. The root pool is split into four datasets, each mounted to a separate path. `forceImportRoot` is set to `false` for safety.
+
+```nix
+boot = {
+  supportedFilesystems  = [ "zfs" ];
+  zfs.forceImportRoot   = false;
+};
+
+fileSystems = {
+  "/"     = { device = "zpool/root"; fsType = "zfs"; options = [ "zfsutil" ]; };
+  "/nix"  = { device = "zpool/nix";  fsType = "zfs"; options = [ "zfsutil" ]; };
+  "/var"  = { device = "zpool/var";  fsType = "zfs"; options = [ "zfsutil" ]; };
+  "/home" = { device = "zpool/home"; fsType = "zfs"; options = [ "zfsutil" ]; };
+};
+```
+
+The pool layout separates system state (`/var`), the Nix store (`/nix`), and user data (`/home`) into independent datasets. This makes snapshot, rollback, and send/receive operations more granular.
+
+### Automatic snapshots
+
+ZFS snapshots are taken automatically. The default retention keeps frequent and daily snapshots but skips monthly ones entirely.
+
+```nix
+services.zfs = {
+  autoScrub.enable = true;
+
+  autoSnapshot = {
+    enable  = true;
+    flags   = "-pu";
+    monthly = 0;
+  };
+};
+```
+
+The `-p` flag creates snapshots with a consistent prefix, and `-u` marks them with the current UTC timestamp. Scrubbing runs on the default weekly schedule.
+
+## Boot — systemd initrd (`boot.nix`)
+
+The initrd uses systemd (stage 1 systemd). The ESP is mounted at `/boot` from the `NIXBOOT` disk label.
+
+```nix
+boot.initrd.systemd.enable = true;
+
+fileSystems."/boot" = {
+  device  = "/dev/disk/by-label/NIXBOOT";
+  fsType  = "vfat";
+  options = [ "fmask=0022" "dmask=0022" ];
+};
+```
+
+## Bootloader — Limine (`limine.nix`)
+
+[Limine](https://limine-bootloader.org/) is used as the UEFI bootloader with a 1-second timeout. EFI variables can be modified by the bootloader.
+
+```nix
+boot.loader = {
+  efi.canTouchEfiVariables = true;
+
+  limine = {
+    enable      = true;
+    extraConfig = "timeout: 1";
+  };
+};
+```
+
+## Hardware detection (`hardware.nix`)
+
+Microcode updates are enabled for both AMD and Intel CPUs. All available firmware blobs are included.
+
+```nix
+hardware = {
+  cpu = {
+    amd.updateMicrocode   = true;
+    intel.updateMicrocode = true;
+  };
+
+  enableAllFirmware = true;
+};
+```
+
+<Note>
+  `enableAllFirmware` requires `nixpkgs.config.allowUnfree = true`, which is set in `nix.nix`.
+</Note>
+
+## PostgreSQL (`postgresql.nix`)
+
+PostgreSQL is enabled with the `pgvector` extension for vector similarity search.
+
+```nix
+services.postgresql = {
+  enable     = true;
+  extensions = ps: with ps; [ pgvector ];
+};
+```
+
+## Removable media — udisks2 (`udisks2.nix`)
+
+udisks2 is enabled so desktop users can mount and unmount removable drives without root privileges.
+
+```nix
+services.udisks2.enable = true;
+```

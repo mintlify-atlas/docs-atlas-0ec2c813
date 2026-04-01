@@ -1,0 +1,299 @@
+---
+title: "Development"
+description: "Editor, VCS, language tooling, and WSL-specific developer modules managed by Home Manager."
+---
+
+Development modules live across the [`base`](/modules/home/overview#base) and [`userspace`](/modules/home/overview#userspace) profiles. Core VCS and language tools ship in `base` so they are available on all hosts. Graphical editors and desktop-only tools are part of `userspace`.
+
+## Helix
+
+Helix is the default editor. The `defaultEditor` option sets the `EDITOR` and `VISUAL` environment variables so programs that invoke an editor (Git, Jujutsu, `sudoedit`, etc.) open Helix automatically.
+
+```nix modules/home/helix.nix
+{ ... }:
+{
+  programs.helix = {
+    enable = true;
+    defaultEditor = true;
+  };
+}
+```
+
+## VS Code
+
+VS Code is configured with a full set of extensions sourced from `pkgs.vscode-marketplace` (provided by [nix-vscode-extensions](https://github.com/nix-community/nix-vscode-extensions)), custom keybindings, and detailed editor settings. Update checks are disabled because updates are managed through Nix.
+
+<AccordionGroup>
+  <Accordion title="Extensions">
+    Extensions are installed from `pkgs.vscode-marketplace`:
+
+    | Extension | Purpose |
+    |-----------|---------|
+    | `rust-lang.rust-analyzer` | Rust language server |
+    | `charliermarsh.ruff` | Python linter and formatter |
+    | `ms-python.python` + `vscode-pylance` | Python support |
+    | `jnoortheen.nix-ide` | Nix language support |
+    | `svelte.svelte-vscode` | Svelte framework support |
+    | `bradlc.vscode-tailwindcss` | Tailwind CSS IntelliSense |
+    | `dbaeumer.vscode-eslint` | ESLint integration |
+    | `esbenp.prettier-vscode` | Prettier formatter |
+    | `tamasfe.even-better-toml` | TOML support |
+    | `prisma.prisma-insider` | Prisma ORM support |
+    | `supabase.postgrestools` | PostgreSQL tools |
+    | `geequlim.godot-tools` | Godot game engine support |
+    | `jjk.jjk` | Jujutsu VCS integration |
+    | `anthropic.claude-code` | Claude Code AI assistant |
+    | `fill-labs.dependi` | Dependency version checking |
+    | `pkief.material-icon-theme` | File icons |
+    | `usernamehw.errorlens` | Inline diagnostic messages |
+    | `mtdmali.daybreak-theme` | Editor colour theme |
+
+    ```nix modules/home/vscode.nix (extensions excerpt)
+    extensions = (
+      with pkgs.vscode-marketplace;
+      [
+        adpyke.vscode-sql-formatter
+        anthropic.claude-code
+        bradlc.vscode-tailwindcss
+        charliermarsh.ruff
+        dbaeumer.vscode-eslint
+        esbenp.prettier-vscode
+        fill-labs.dependi
+        geequlim.godot-tools
+        github.vscode-pull-request-github
+        jjk.jjk
+        jnoortheen.nix-ide
+        # …
+      ]
+    );
+    ```
+  </Accordion>
+
+  <Accordion title="Keybindings">
+    Keybindings are remapped to match a more ergonomic layout:
+
+    | Binding | Action |
+    |---------|--------|
+    | `Ctrl+P` | Command palette (instead of file finder) |
+    | `Ctrl+Shift+P` | File finder (swapped with `Ctrl+P`) |
+    | `Ctrl+D` | Duplicate selection (instead of find next) |
+    | `Ctrl+Y` | Delete line (instead of redo) |
+    | `Alt+Left/Right` | Move by subword |
+    | `Alt+Backspace/Delete` | Delete by subword |
+    | `Ctrl+Alt+Up/Down` | Expand/shrink smart selection |
+    | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next/previous editor in group |
+    | `Ctrl+Shift+S` | Save without formatting |
+    | `Ctrl+F12` | Open settings (instead of go to implementation) |
+
+    ```nix modules/home/vscode.nix (keybindings excerpt)
+    keybindings = [
+      {
+        key = "ctrl+p";
+        command = "workbench.action.showCommands";
+      }
+      {
+        key = "ctrl+shift+p";
+        command = "workbench.action.quickOpen";
+      }
+      {
+        key = "ctrl+d";
+        command = "editor.action.duplicateSelection";
+        when = "textInputFocus";
+      }
+      # …
+    ];
+    ```
+  </Accordion>
+
+  <Accordion title="Editor settings">
+    Key user settings:
+
+    - Font: Fira Code with ligatures enabled
+    - Format on save and format on type
+    - Minimap disabled
+    - Folding and sticky scroll disabled
+    - Line ruler at column 100
+    - Smooth cursor animation
+    - Inlay hints disabled
+    - Semantic highlighting enabled
+    - Prettier is the default formatter for CSS, HTML, JS, JSON, Markdown, TypeScript
+    - Nix IDE handles `.nix` files
+    - Ruff handles Python formatting and linting
+    - rust-analyzer handles Rust
+    - `search.exclude` ignores `.jj`, `.venv`, `target`, and build directories
+
+    ```nix modules/home/vscode.nix (settings excerpt)
+    userSettings = {
+      "editor.fontFamily" = "Fira Code";
+      "editor.fontLigatures" = true;
+      "editor.formatOnSave" = true;
+      "editor.minimap.enabled" = false;
+      "editor.rulers" = [ 100 ];
+      "workbench.colorTheme" = "Daybreak";
+      "workbench.iconTheme" = "material-icon-theme";
+      "nix.enableLanguageServer" = true;
+      "[nix]"."editor.defaultFormatter" = "jnoortheen.nix-ide";
+      "[rust]"."editor.defaultFormatter" = "rust-lang.rust-analyzer";
+      "[python]"."editor.defaultFormatter" = "charliermarsh.ruff";
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  VS Code is excluded from Stylix theming (`stylix.targets.vscode.enable = false`). The Daybreak theme is set directly in `userSettings`.
+</Note>
+
+## Zed
+
+Zed is configured with the Catppuccin Mocha theme, Nix language support, and custom keybindings that mirror the VS Code layout. A `zed` shell alias resolves to the full package path.
+
+```nix modules/home/zed.nix
+{ lib, pkgs, ... }:
+{
+  home.shellAliases.zed = lib.getExe pkgs.zed-editor;
+
+  programs.zed-editor = {
+    enable = true;
+
+    extensions = [
+      "catppuccin"
+      "nix"
+    ];
+
+    userSettings = {
+      theme = "Catppuccin Mocha";
+      auto_signature_help = true;
+      disable_ai = true;
+      diagnostics.inline.enabled = true;
+      wrap_guides = [ 100 ];
+
+      languages = {
+        Nix.formatter = "language_server";
+        QML.formatter = "language_server";
+        Rust.formatter = "language_server";
+      };
+    };
+  };
+}
+```
+
+Key settings: AI is disabled, inline diagnostics are enabled, the wrap guide sits at 100 columns, and language servers handle formatting for Nix, QML, and Rust.
+
+<Note>
+  Zed is excluded from Stylix theming (`stylix.targets.zed.enable = false`). The Catppuccin Mocha theme is set via `userSettings.theme`.
+</Note>
+
+## Jujutsu
+
+Jujutsu (`jj`) is the primary version control system. The module sets the user identity used in commits.
+
+```nix modules/home/jujutsu.nix
+{ ... }:
+{
+  programs.jujutsu = {
+    enable = true;
+
+    settings.user = {
+      name = "jel";
+      email = "25802745+jelni@users.noreply.github.com";
+    };
+  };
+}
+```
+
+The email is a GitHub no-reply address, which keeps the real address private while still associating commits with the GitHub account.
+
+## Jujutsu signing
+
+Commit signing is configured separately from the core Jujutsu module so it can be composed differently between bare-metal and WSL hosts. On bare-metal, `op-ssh-sign` from the native 1Password installation is used. On WSL, `op-ssh-sign.exe` is used instead (see [WSL-specific tools](#wsl-specific-tools) below).
+
+```nix modules/home/jujutsu-signing.nix
+{ ... }:
+{
+  programs.jujutsu.settings = {
+    signing = {
+      behavior = "force";
+      backend = "ssh";
+      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIeyqBh/je0A8dMXB0m9jxZ0nBWHc5Hj+dFmFBiT5Mdw";
+    };
+
+    git.sign-on-push = true;
+  };
+}
+```
+
+All commits are force-signed with the ed25519 SSH key managed by 1Password. `git.sign-on-push = true` ensures signatures are added when pushing to Git-backed remotes.
+
+## GitHub CLI
+
+The GitHub CLI (`gh`) is enabled for interacting with GitHub repositories, pull requests, and issues from the command line.
+
+```nix modules/home/github.nix
+{ ... }:
+{
+  programs.gh.enable = true;
+}
+```
+
+## GCC
+
+GCC is enabled to provide a C compiler toolchain. This is included in the `base` profile so it is available on all hosts, including the server, for compiling native dependencies.
+
+```nix modules/home/gcc.nix
+{ ... }:
+{
+  programs.gcc.enable = true;
+}
+```
+
+## uv
+
+uv is enabled as the Python package and project manager. It handles virtual environments, dependency resolution, and package installation significantly faster than pip.
+
+```nix modules/home/uv.nix
+{ ... }:
+{
+  programs.uv.enable = true;
+}
+```
+
+## Claude Code
+
+Claude Code is enabled as an AI coding assistant available from the command line and inside VS Code (via the `anthropic.claude-code` extension).
+
+```nix modules/home/claude-code.nix
+{ ... }:
+{
+  programs.claude-code.enable = true;
+}
+```
+
+## WSL-specific tools
+
+Two modules handle the boundary between the Linux WSL environment and the Windows host.
+
+<Tabs>
+  <Tab title="wsl-git">
+    `wsl-git` routes Git's SSH command to the Windows `ssh.exe` binary. This lets Git use the Windows OpenSSH agent (or 1Password agent on Windows) for authentication without any additional configuration inside WSL.
+
+    ```nix modules/home/wsl-git.nix
+    { ... }:
+    {
+      programs.git.settings.core.sshCommand = "ssh.exe";
+    }
+    ```
+  </Tab>
+  <Tab title="wsl-1password">
+    `wsl-1password` overrides the Jujutsu SSH signing program to use the Windows `op-ssh-sign.exe` binary. This is applied on top of the [`jujutsu-signing`](#jujutsu-signing) module, which sets the key and signing behaviour, so only the binary path needs to change.
+
+    ```nix modules/home/wsl-1password.nix
+    { ... }:
+    {
+      programs.jujutsu.settings.signing.backends.ssh.program = "op-ssh-sign.exe";
+    }
+    ```
+
+    This module is part of the optional [`wsl-1password`](/modules/home/overview#wsl-1password) profile. Hosts that use WSL without 1Password on Windows skip this module.
+  </Tab>
+</Tabs>

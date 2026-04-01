@@ -1,0 +1,115 @@
+---
+title: Introduction
+description: An overview of jelni/nix-configuration — a personal NixOS flake managing multiple machines with declarative, composable, reproducible system configurations.
+---
+
+`nix-configuration` is a personal NixOS flake that fully manages every machine its owner uses — from a desktop workstation and a laptop to a home server and Windows Subsystem for Linux environments. Every piece of system state, every installed package, every daemon, and every secret is tracked in version control and rebuilt from source.
+
+<Note>
+  This is a personal configuration, not a general-purpose framework. The documentation describes how it works so that the design decisions, module structure, and host layouts are easy to navigate and understand.
+</Note>
+
+## What it is
+
+At its core, `nix-configuration` is a single [Nix Flake](https://nixos.wiki/wiki/Flakes) that declares the desired state of several machines. When you run `nixos-rebuild switch --flake .#hostname`, NixOS computes the entire system closure — every package, configuration file, and service — from the flake and activates it atomically. Rolling back is a single command.
+
+The configuration is built on two complementary tools:
+
+- **NixOS** manages the operating system: kernel, services, users, networking, storage, secrets, and hardware quirks.
+- **Home Manager** manages user-space: dotfiles, application settings, shell configuration, and per-user packages.
+
+Both layers share the same flake, the same module system, and the same set of reusable profiles — so changes made in one place are reflected everywhere that imports the relevant module.
+
+## Key technologies
+
+<CardGroup cols={2}>
+  <Card title="NixOS" icon="linux" href="https://nixos.org">
+    The operating system layer. Everything from boot loaders and ZFS pools to GNOME and systemd services is declared in Nix.
+  </Card>
+  <Card title="Nix Flakes" icon="snowflake" href="https://nixos.wiki/wiki/Flakes">
+    The packaging format that pins every dependency to an exact revision. `flake.lock` records the precise commit of every input so builds are reproducible across machines.
+  </Card>
+  <Card title="Home Manager" icon="house" href="https://github.com/nix-community/home-manager">
+    Manages user-level configuration — shell profiles, editor settings, application configs — using the same Nix expression language as NixOS.
+  </Card>
+  <Card title="blueprint" icon="map" href="https://github.com/numtide/blueprint">
+    A lightweight flake framework by numtide that auto-discovers hosts and modules from the directory structure, keeping `flake.nix` to a single meaningful line of outputs.
+  </Card>
+  <Card title="Stylix" icon="palette" href="https://github.com/nix-community/stylix">
+    Generates a system-wide color scheme and applies it to terminals, editors, GNOME, and other applications automatically from a single base16 palette.
+  </Card>
+  <Card title="agenix" icon="lock" href="https://github.com/ryantm/agenix">
+    Encrypts secrets with age and the host's SSH key, so credentials like passwords, Cloudflare tokens, and wireless network configurations are stored safely in the repository.
+  </Card>
+</CardGroup>
+
+### Additional inputs
+
+Beyond the six above, the flake also pulls in:
+
+- **nixos-hardware** — hardware-specific NixOS modules (used for the Framework 16 laptop).
+- **NixOS-WSL** — NixOS support for Windows Subsystem for Linux.
+- **srvos** — opinionated NixOS modules for servers and workstations from numtide.
+- **nix-vscode-extensions** — a large, frequently updated set of VS Code extension packages.
+- **flake-firefox-nightly** — nightly Firefox builds packaged for Nix.
+- **copyparty** — a self-hostable file server, included as a flake input so its version is pinned.
+- **catppuccin-fish** — the Catppuccin theme for Fish shell (included as a plain source archive, `flake = false`).
+
+## Machines managed
+
+Five hosts are defined under `hosts/`:
+
+<CardGroup cols={2}>
+  <Card title="hlebak" icon="desktop">
+    A desktop workstation running NixOS with an Intel CPU and NVIDIA GPU. It uses the `base`, `baremetal`, `nvidia`, and `userspace` profiles for a full graphical environment with GNOME, Steam, Flatpak, and local services.
+  </Card>
+  <Card title="hydromechanizator" icon="laptop">
+    A Framework 16 laptop with an AMD CPU. It uses the `base`, `baremetal`, `framework-16-7040-amd`, `latest-zfs-kernel`, and `userspace` profiles — the hardware profile adds nixos-hardware tweaks specific to that model.
+  </Card>
+  <Card title="dreamweaver" icon="server">
+    A home server running the `base`, `baremetal`, `latest-zfs-kernel`, and `server` profiles. It hosts self-managed services including Matrix (Tuwunel), GoToSocial, Gonic, Etherpad, Home Assistant, Kubo (IPFS), Copyparty, and more.
+  </Card>
+  <Card title="hlebak-wsl" icon="terminal">
+    A NixOS-WSL instance running alongside the hlebak desktop. Uses the `base` and `wsl` profiles.
+  </Card>
+  <Card title="spycharkozrywarka-wsl" icon="terminal">
+    A second NixOS-WSL instance on a different machine. Also uses the `base` and `wsl` profiles.
+  </Card>
+</CardGroup>
+
+## Design philosophy
+
+The configuration is built around three principles:
+
+**Declarative.** You describe *what* the system should look like, not *how* to get there. Adding a service means adding a module import — not running an imperative install script. Removing it means removing the import and rebuilding.
+
+**Composable.** Functionality is split into small, focused modules (one file per service or tool) and then grouped into profiles. A host picks the profiles appropriate for its role. The `base` profile runs on every machine; `userspace` adds a graphical environment; `server` adds self-hosted services. Nothing is duplicated across hosts.
+
+**Reproducible.** Every input is pinned in `flake.lock`. Two machines importing the same profile with the same locked inputs produce bit-for-bit identical derivations. Upgrading a dependency is a deliberate, reviewable change to `flake.lock`.
+
+<Info>
+  The combination of blueprint's auto-discovery and small single-purpose modules keeps `flake.nix` to 59 lines — the entire output expression is `outputs = inputs: inputs.blueprint { inherit inputs; };`.
+</Info>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Structure" icon="folder-tree" href="/structure">
+    Understand the flake inputs, directory layout, and how the profile and module systems fit together.
+  </Card>
+  <Card title="Hosts" icon="server" href="/hosts/overview">
+    See each machine's full configuration, hardware details, and the profiles it uses.
+  </Card>
+  <Card title="NixOS modules" icon="gear" href="/modules/nixos/system">
+    Browse the individual NixOS modules that make up each profile.
+  </Card>
+  <Card title="Home Manager" icon="house" href="/modules/home/overview">
+    Explore the Home Manager modules used for user-space configuration.
+  </Card>
+  <Card title="Secrets" icon="lock" href="/operations/secrets">
+    Learn how agenix encrypts and deploys secrets to each host.
+  </Card>
+  <Card title="Theming" icon="palette" href="/operations/theming">
+    See how Stylix applies a unified color scheme across the entire system.
+  </Card>
+</CardGroup>

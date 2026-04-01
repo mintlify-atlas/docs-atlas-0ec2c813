@@ -1,0 +1,138 @@
+---
+title: "hydromechanizator"
+description: "A Framework 16 AMD laptop running bare-metal x86_64-linux with ZFS, Framework hardware optimisations, and the full userspace profile."
+---
+
+`hydromechanizator` is a [Framework Laptop 16](https://frame.work/laptop16) with an AMD Ryzen 7040 series processor. It runs NixOS bare-metal on `x86_64-linux` with a ZFS-compatible kernel, Framework-specific hardware configuration, and the same full interactive userspace as `hlebak`.
+
+## Profiles
+
+`hydromechanizator` imports five NixOS profiles:
+
+<AccordionGroup>
+  <Accordion title="base" icon="cube">
+    The foundation of every host. Enables:
+
+    - **Nix toolchain**: Lix (the Nix implementation), flake support, and `nix-ld` for dynamic linker compatibility
+    - **Shell**: Fish shell with system-wide configuration
+    - **User management**: Declarative user accounts via the `users` module
+    - **Privilege escalation**: `doas` instead of `sudo`
+    - **Secrets**: `agenix` for age-encrypted secret management
+    - **Remote access**: OpenSSH server
+    - **Tools**: `git`, `wget2`, `safe-rm`, `moor`
+    - **Host identity**: Hostname set from the directory name via `host-name`
+  </Accordion>
+  <Accordion title="baremetal" icon="microchip">
+    Hardware and display configuration for physical machines. Enables:
+
+    - **Boot**: Limine bootloader with Plymouth boot splash
+    - **Display**: X server and `kmscon` for kernel-mode console
+    - **Networking**: NetworkManager and NTP time synchronisation
+    - **Firewall** and **DNS** configuration
+    - **Storage**: ZFS filesystem support
+    - **Hardware**: `fwupd` firmware updates, hardware-specific tuning
+    - **Power management** and system suspend
+    - **Services**: Tailscale VPN, PostgreSQL, Terminfo
+    - **Theming**: Stylix (Catppuccin Mocha system-wide theme)
+    - **User**: `user-jel` system account
+  </Accordion>
+  <Accordion title="framework-16-7040-amd" icon="laptop">
+    Hardware-specific configuration for the Framework 16 with an AMD Ryzen 7040 processor. Delegates entirely to the `framework-16-7040-amd` NixOS module, which applies kernel parameters, power management tuning, and driver configuration specific to this hardware generation.
+  </Accordion>
+  <Accordion title="latest-zfs-kernel" icon="hard-drive">
+    Overrides the default NixOS kernel with the latest kernel version that ZFS supports. Delegates to the `latest-zfs-kernel` NixOS module. This ensures ZFS compatibility while still tracking a recent kernel for hardware support improvements relevant to newer AMD hardware.
+  </Accordion>
+  <Accordion title="userspace" icon="window">
+    Interactive desktop environment and applications. Enables:
+
+    - **Desktop**: GNOME Shell
+    - **Audio**: PipeWire with full session management
+    - **Applications**: 1Password, VSCode, OBS Studio, Halloy (IRC client), Flatpak
+    - **Gaming**: Steam
+    - **Productivity**: Printing support, virtual filesystem via gvfs and udisks2
+    - **AI**: Ollama local LLM runtime
+    - **Containers**: Docker
+    - **srvos userspace** integration
+    - **User**: `user-guest` guest account
+  </Accordion>
+</AccordionGroup>
+
+## Framework 16 hardware configuration
+
+The `framework-16-7040-amd` profile applies hardware tuning specific to the Framework 16 AMD platform, including AMD-specific kernel parameters and power management configuration. This profile is narrowly scoped and delegates entirely to a single NixOS module:
+
+```nix
+{ flake, ... }:
+{
+  imports = [ flake.nixosModules.framework-16-7040-amd ];
+}
+```
+
+## ZFS kernel
+
+The `latest-zfs-kernel` profile selects a kernel that is both recent enough for Framework 16 hardware support and compatible with ZFS:
+
+```nix
+{ flake, ... }:
+{
+  imports = [ flake.nixosModules.latest-zfs-kernel ];
+}
+```
+
+Unlike `hlebak`, `hydromechanizator` does not declare explicit `boot.initrd.availableKernelModules` or `boot.kernelModules` in its `configuration.nix`. The Framework 16 hardware profile provides any required kernel module configuration.
+
+## Platform and state version
+
+```nix
+networking.hostId = "d0eca1a0";
+nixpkgs.hostPlatform = "x86_64-linux";
+system.stateVersion = "25.05";
+```
+
+The `hostId` uniquely identifies this machine for ZFS pool import. The `stateVersion` of 25.05 reflects when this machine was initially installed.
+
+## Users
+
+### NixOS user — `jel`
+
+The system account is provided by the `baremetal` profile's `user-jel` module.
+
+### Home Manager — `jel`
+
+The per-user Home Manager configuration at `hosts/hydromechanizator/users/jel.nix` imports the same three home profiles as `hlebak`:
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.home-profiles; [
+    baremetal
+    base
+    userspace
+  ];
+
+  home.stateVersion = "25.05";
+}
+```
+
+- **`base`**: Core dotfiles — shell, Git, editor, and developer tools
+- **`baremetal`**: Additional configuration for physical machines (display, hardware integrations)
+- **`userspace`**: Application configuration for GNOME, audio, and desktop apps
+
+## Full configuration
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.nixos-profiles; [
+    baremetal
+    base
+    framework-16-7040-amd
+    latest-zfs-kernel
+    userspace
+  ];
+
+  networking.hostId = "d0eca1a0";
+  nixpkgs.hostPlatform = "x86_64-linux";
+  system.stateVersion = "25.05";
+}
+```

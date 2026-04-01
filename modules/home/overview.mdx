@@ -1,0 +1,182 @@
+---
+title: "Home Manager overview"
+description: "How Home Manager is used in this configuration and how profiles compose per-user modules across hosts."
+---
+
+[Home Manager](https://github.com/nix-community/home-manager) manages per-user configuration — dotfiles, shell settings, graphical applications, and developer tools — declaratively alongside the NixOS system configuration. Every option is expressed in Nix, versioned in the repository, and reproducible across machines.
+
+Rather than configuring each user individually, modules are grouped into **home profiles** that each host imports selectively. This keeps the base layer lean while letting desktop machines, servers, and WSL environments pull in only what they need.
+
+<CardGroup cols={2}>
+  <Card title="Shell & terminal" icon="terminal" href="/modules/home/shell">
+    Fish, Nushell, Ghostty, bat, eza, ripgrep, delta, direnv, and more
+  </Card>
+  <Card title="Applications" icon="layout-grid" href="/modules/home/applications">
+    Firefox, mpv, Vesktop, Mullvad VPN, GNOME integration, SSH, and Stylix
+  </Card>
+  <Card title="Development" icon="code" href="/modules/home/development">
+    Helix, VS Code, Zed, Jujutsu, GitHub CLI, uv, Claude Code, and WSL tools
+  </Card>
+  <Card title="Hosts" icon="server" href="/hosts/overview">
+    See which profiles each host imports
+  </Card>
+</CardGroup>
+
+## Home profiles
+
+Profiles are thin aggregation modules that live in `modules/home-profiles/`. Each one imports a curated set of home modules. Hosts compose their per-user environment by importing one or more profiles.
+
+### `base`
+
+The universal baseline. Every host imports this profile regardless of whether it runs a desktop or only a shell.
+
+```nix modules/home-profiles/base.nix
+{ flake, ... }:
+{
+  imports = with flake.homeModules; [
+    aria2
+    bat
+    delta
+    direnv
+    eza
+    fish
+    gcc
+    github
+    home-manager
+    jujutsu
+    ripgrep
+    uv
+  ];
+}
+```
+
+| Module | Purpose |
+|--------|---------|
+| `fish` | Primary interactive shell |
+| `bat` | `cat` replacement with syntax highlighting |
+| `delta` | Git and Jujutsu diff pager |
+| `direnv` | Per-directory environment variables with nix-direnv |
+| `eza` | `ls` replacement |
+| `ripgrep` | Fast recursive search |
+| `aria2` | Download manager |
+| `gcc` | C compiler toolchain |
+| `github` | GitHub CLI (`gh`) |
+| `home-manager` | Weekly auto-expire for old generations |
+| `jujutsu` | Jujutsu VCS with user identity |
+| `uv` | Python package and project manager |
+
+### `userspace`
+
+Graphical and user-facing applications. Imported on desktop machines that run a full GUI session.
+
+```nix modules/home-profiles/userspace.nix
+{ flake, ... }:
+{
+  imports = with flake.homeModules; [
+    _1password
+    claude-code
+    firefox
+    ghostty
+    gnome
+    halloy
+    helix
+    jujutsu-signing
+    mpv
+    mullvad-vpn
+    nushell
+    udiskie
+    vesktop
+    vscode
+    xdg
+    yt-dlp
+    zed
+  ];
+}
+```
+
+| Module | Purpose |
+|--------|---------|
+| `_1password` | 1Password GUI and SSH agent socket |
+| `claude-code` | Claude Code AI assistant |
+| `firefox` | Firefox Nightly with managed extensions and uBlock settings |
+| `ghostty` | Ghostty terminal emulator |
+| `gnome` | GNOME Shell extensions and clipboard favourites |
+| `halloy` | Halloy IRC client |
+| `helix` | Helix as the default editor |
+| `jujutsu-signing` | SSH commit signing via 1Password |
+| `mpv` | Media player |
+| `mullvad-vpn` | Mullvad VPN desktop client |
+| `nushell` | Nushell secondary shell |
+| `udiskie` | Removable media automount daemon |
+| `vesktop` | Vesktop (Discord) with Vencord plugins |
+| `vscode` | VS Code with extensions and settings |
+| `xdg` | XDG MIME associations and autostart entries |
+| `yt-dlp` | Video downloader |
+| `zed` | Zed editor |
+
+### `baremetal`
+
+Extra modules enabled on bare-metal machines (not WSL). These include process monitors and features that require direct hardware access.
+
+```nix modules/home-profiles/baremetal.nix
+{ flake, ... }:
+{
+  imports = with flake.homeModules; [
+    bottom
+    htop
+    ssh
+    stylix
+  ];
+}
+```
+
+| Module | Purpose |
+|--------|---------|
+| `bottom` | Cross-platform system monitor (`btm`) |
+| `htop` | Interactive process viewer with custom meters |
+| `ssh` | SSH client with agent forwarding enabled |
+| `stylix` | Home Manager Stylix targets (Firefox, Helix, etc.) |
+
+### `wsl`
+
+Minimal additions for WSL environments.
+
+```nix modules/home-profiles/wsl.nix
+{ flake, ... }:
+{
+  imports = [ flake.homeModules.wsl-git ];
+}
+```
+
+`wsl-git` redirects Git's SSH command to the Windows `ssh.exe` binary so that keys managed by Windows SSH agent are available inside WSL.
+
+### `wsl-1password`
+
+Optional layer for WSL hosts that have 1Password installed on Windows. Adds commit signing support through the Windows 1Password SSH agent.
+
+```nix modules/home-profiles/wsl-1password.nix
+{ flake, ... }:
+{
+  imports = with flake.homeModules; [
+    jujutsu-signing
+    wsl-1password
+  ];
+}
+```
+
+`wsl-1password` overrides the Jujutsu signing backend to use `op-ssh-sign.exe` instead of the native `op-ssh-sign`, bridging the WSL boundary.
+
+## Profile composition by host
+
+Each host's Home Manager configuration imports a combination of profiles. The table below shows which profiles each host uses.
+
+| Host | `base` | `userspace` | `baremetal` | `wsl` | `wsl-1password` |
+|------|--------|-------------|-------------|-------|-----------------|
+| hlebak (desktop) | Yes | Yes | Yes | — | — |
+| hydromechanizator (laptop) | Yes | Yes | Yes | — | — |
+| dreamweaver (server) | Yes | — | Yes | — | — |
+| WSL | Yes | — | — | Yes | Optional |
+
+<Note>
+  The `stylix` module is only loaded in the `baremetal` profile because WSL hosts do not run a display server and cannot apply graphical theming targets.
+</Note>

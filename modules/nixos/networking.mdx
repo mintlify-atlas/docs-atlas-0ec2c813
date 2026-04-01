@@ -1,0 +1,189 @@
+---
+title: "Networking"
+description: "NixOS modules that configure Tailscale VPN, NetworkManager, firewall, DNS-over-TLS, OpenSSH, initrd SSH, and NTP."
+---
+
+The networking modules handle every layer of connectivity: physical interface management with NetworkManager, nftables firewall rules, Mullvad DNS-over-TLS, Tailscale VPN, SSH (both runtime and early-boot), and time synchronisation with chrony.
+
+## Tailscale (`tailscale.nix`)
+
+Tailscale is enabled with SSH access via `--ssh`. The firewall is opened automatically. The qBittorrent WebUI is configured to bypass authentication for any connection originating from a Tailscale IP.
+
+```nix
+services = {
+  tailscale = {
+    enable         = true;
+    extraSetFlags  = [ "--ssh" ];
+    openFirewall   = true;
+  };
+
+  qbittorrent.serverConfig.Preferences.WebUI = {
+    AuthSubnetWhitelist        = "100.64.0.0/10, fd7a:115c:a1e0::/48";
+    AuthSubnetWhitelistEnabled = true;
+  };
+};
+```
+
+<Note>
+  The Tailscale subnet ranges `100.64.0.0/10` (IPv4 CGNAT) and `fd7a:115c:a1e0::/48` (IPv6) cover all Tailscale-assigned addresses, so any device on your tailnet can access the qBittorrent WebUI without a password.
+</Note>
+
+## NetworkManager (`networkmanager.nix`)
+
+NetworkManager manages all network interfaces. MAC addresses are stable-per-SSID for Wi-Fi and stable for Ethernet, limiting MAC-based tracking across different networks.
+
+Wireless profiles are provisioned declaratively. Credentials are loaded at runtime from an age-encrypted environment file so they are never stored in the Nix store.
+
+```nix
+networking.networkmanager = {
+  wifi.macAddress     = "stable-ssid";
+  ethernet.macAddress = "stable";
+
+  ensureProfiles = {
+    environmentFiles = [ config.age.secrets.wireless-networks.path ];
+
+    profiles =
+      let
+        profile = name: {
+          connection = {
+            id   = "\$${name}_SSID";
+            type = "wifi";
+          };
+
+          wifi.ssid = "\$${name}_SSID";
+
+          wifi-security = {
+            key-mgmt = "\$${name}_SECURITY";
+            psk      = "\$${name}_PASS";
+          };
+        };
+      in
+      builtins.listToAttrs (
+        builtins.map
+          (name: {
+            inherit name;
+            value = profile (lib.toUpper name);
+          })
+          [
+            "grawideon"
+            "gidflugh"
+            "kataplaster"
+            "alfabetyzator"
+            "genetication"
+            "adoment"
+            "abstrulich"
+            "wpajpowac"
+            "siekieralt"
+            "technokokarda"
+          ]
+      );
+  };
+};
+```
+
+Each profile name in the list corresponds to a set of three environment variables: `<NAME>_SSID`, `<NAME>_SECURITY`, and `<NAME>_PASS`, which are injected from the age secret at activation time.
+
+## Firewall (`firewall.nix`)
+
+The firewall uses nftables (replacing iptables) and opens ports 80 and 443 for HTTP/HTTPS traffic. Individual service modules open additional ports as needed.
+
+```nix
+networking = {
+  firewall = {
+    allowedTCPPorts = [ 80 443 ];
+  };
+
+  nftables.enable = true;
+};
+```
+
+## DNS (`dns.nix`)
+
+DNS queries are resolved by `systemd-resolved` with opportunistic DNS-over-TLS. The upstream nameservers are Mullvad's non-logging base DNS resolvers (IPv4 and IPv6). The fallback DNS list is empty to prevent leaking queries to other resolvers.
+
+```nix
+networking.nameservers = [
+  "194.242.2.4#base.dns.mullvad.net"
+  "2a07:e340::4#base.dns.mullvad.net"
+];
+
+services.resolved = {
+  enable      = true;
+  dnsovertls  = "opportunistic";
+  dnssec      = "allow-downgrade";
+  fallbackDns = [ ];
+};
+```
+
+## OpenSSH (`openssh.nix`)
+
+The SSH server accepts only public-key authentication. Password and keyboard-interactive authentication are disabled. Root login is denied. SSH agent authentication through PAM is enabled so that an agent-forwarded key can be used for `doas`.
+
+```nix
+security.pam.sshAgentAuth.enable = true;
+
+services.openssh = {
+  enable = true;
+
+  settings = {
+    KbdInteractiveAuthentication = false;
+    PasswordAuthentication       = false;
+    PermitRootLogin              = "no";
+  };
+};
+```
+
+## initrd SSH (`initrd-ssh.nix`)
+
+For encrypted systems (like `dreamweaver`), SSH is available in the initial ramdisk so you can unlock the disk remotely before the main system boots. The `r8169` kernel module is loaded to bring the network card up early.
+
+```nix
+boot.initrd = {
+  availableKernelModules = [ "r8169" ];
+
+  network = {
+    enable = true;
+
+    ssh = {
+      enable = true;
+
+      hostKeys = [
+        "/etc/secrets/initrd/ssh_host_rsa_key"
+        "/etc/secrets/initrd/ssh_host_ed25519_key"
+      ];
+    };
+  };
+};
+```
+
+<Note>
+  The initrd host keys at `/etc/secrets/initrd/` must be provisioned manually on the target machine — they are not managed through agenix because agenix itself is not available before the root filesystem is mounted.
+</Note>
+
+## NTP (`ntp.nix`)
+
+Time is synchronised by `chrony` against the four `pool.ntp.org` servers. At least three sources must agree before chrony trusts them. `systemd-timesyncd` is disabled to avoid conflicts. The timezone is set to `Europe/Warsaw`.
+
+```nix
+networking.timeServers = [
+  "0.pool.ntp.org"
+  "1.pool.ntp.org"
+  "2.pool.ntp.org"
+  "3.pool.ntp.org"
+];
+
+services = {
+  chrony = {
+    enable = true;
+
+    extraConfig = ''
+      minsources 3
+      rtconutc
+    '';
+  };
+
+  timesyncd.enable = false;
+};
+
+time.timeZone = "Europe/Warsaw";
+```

@@ -1,0 +1,90 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "nix-configuration",
+  "projectDescription": "A personal NixOS flake configuration managing multiple hosts — desktops, a server, and WSL environments — with declarative theming, secret management, and self-hosted services.",
+  "theme": "aspen",
+  "primaryColor": "#cba6f7",
+  "lightColor": null,
+  "darkColor": "#1e1e2e",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "structure"
+            ]
+          },
+          {
+            "group": "Hosts",
+            "pages": [
+              "hosts/overview",
+              "hosts/hlebak",
+              "hosts/hydromechanizator",
+              "hosts/dreamweaver",
+              "hosts/wsl"
+            ]
+          },
+          {
+            "group": "NixOS Modules",
+            "pages": [
+              "modules/nixos/desktop",
+              "modules/nixos/server-services",
+              "modules/nixos/networking",
+              "modules/nixos/storage",
+              "modules/nixos/system"
+            ]
+          },
+          {
+            "group": "Home Manager",
+            "pages": [
+              "modules/home/overview",
+              "modules/home/shell",
+              "modules/home/applications",
+              "modules/home/development"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/secrets",
+              "operations/theming",
+              "operations/bootstrap"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Nix Flakes with blueprint framework for organized multi-host management",
+    "Catppuccin Mocha theming system-wide via Stylix",
+    "Secret management with agenix (age-encrypted secrets)",
+    "ZFS filesystem with automatic snapshots and scrubbing",
+    "Self-hosted services: GoToSocial, Matrix (tuwunel), Home Assistant, Gonic, Copyparty, Etherpad",
+    "Tailscale VPN with SSH access across all hosts",
+    "GNOME desktop with declarative dconf settings and locked configuration",
+    "WSL support for Windows development environments",
+    "Cloudflare Tunnel for secure service exposure",
+    "Home Manager for per-user dotfile and application management"
+  ],
+  "publicApiSurface": [
+    "flake.modules.nixos-profiles.base",
+    "flake.modules.nixos-profiles.baremetal",
+    "flake.modules.nixos-profiles.userspace",
+    "flake.modules.nixos-profiles.server",
+    "flake.modules.nixos-profiles.wsl",
+    "flake.modules.home-profiles.base",
+    "flake.modules.home-profiles.userspace",
+    "flake.nixosModules.*",
+    "flake.homeModules.*",
+    "hosts/dreamweaver",
+    "hosts/hlebak",
+    "hosts/hydromechanizator",
+    "hosts/hlebak-wsl",
+    "hosts/spycharkozrywarka-wsl"
+  ]
+}

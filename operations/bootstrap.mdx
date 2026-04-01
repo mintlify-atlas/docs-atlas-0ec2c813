@@ -1,0 +1,237 @@
+---
+title: Bootstrap
+description: How to deploy this configuration on a new or existing NixOS machine.
+---
+
+This page covers how to apply the configuration to a machine, how host discovery works, and how to add a new host.
+
+## Prerequisites
+
+- A running NixOS installation
+- Nix flakes enabled (either in the installer or via `nix.settings.experimental-features = ["nix-command" "flakes"]`)
+- Git and SSH access to the repository
+
+## Deploying to an existing host
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/jelni/nix-configuration
+    cd nix-configuration
+    ```
+  </Step>
+  <Step title="Apply the NixOS configuration">
+    Run `nixos-rebuild` with the flake, substituting the actual hostname:
+
+    ```bash
+    sudo nixos-rebuild switch --flake .#hostname
+    ```
+
+    Replace `hostname` with one of the host directories under `hosts/` (e.g., `hlebak`, `dreamweaver`).
+  </Step>
+  <Step title="Apply the Home Manager configuration">
+    After the system configuration is active, apply the user configuration. The flake target is `user@host`:
+
+    ```bash
+    home-manager switch --flake .#jel@hlebak
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Running `nixos-rebuild switch` immediately replaces the active system configuration. Make sure the host's `configuration.nix` is correct — in particular `networking.hostId`, `nixpkgs.hostPlatform`, and the ZFS filesystem labels — before switching on a machine with existing data.
+</Warning>
+
+## How blueprint discovers hosts
+
+The flake delegates all output generation to [blueprint](https://github.com/numtide/blueprint):
+
+```nix
+# flake.nix
+outputs = inputs: inputs.blueprint { inherit inputs; };
+```
+
+blueprint scans the `hosts/` directory and produces a `nixosConfigurations` entry for each subdirectory that contains a `configuration.nix`. User configurations are discovered from `hosts/<host>/users/<user>.nix` and exposed as Home Manager configurations.
+
+You do not need to register a new host anywhere else — placing a `configuration.nix` in a new directory under `hosts/` is sufficient.
+
+## Adding a new host
+
+<Steps>
+  <Step title="Create the host directory and configuration">
+    ```bash
+    mkdir -p hosts/myhostname
+    ```
+
+    Create `hosts/myhostname/configuration.nix`. Use an existing host as a reference:
+
+    ```nix
+    { flake, ... }:
+    {
+      imports = with flake.modules.nixos-profiles; [
+        baremetal
+        base
+      ];
+
+      boot = {
+        initrd.availableKernelModules = [
+          "ahci"
+          "nvme"
+          "sd_mod"
+          "xhci_pci"
+        ];
+
+        kernelModules = [ "kvm-intel" ]; # or kvm-amd
+      };
+
+      networking.hostId = "xxxxxxxx"; # unique 8-hex-digit ZFS host ID
+      nixpkgs.hostPlatform = "x86_64-linux";
+      system.stateVersion = "25.11";
+    }
+    ```
+  </Step>
+  <Step title="Generate a unique hostId">
+    ZFS requires a unique 8-character hex `hostId` per machine. Generate one with:
+
+    ```bash
+    head -c 8 /etc/machine-id
+    ```
+
+    Or produce a random value:
+
+    ```bash
+    tr -dc '0-9a-f' < /dev/urandom | head -c 8
+    ```
+
+    Set this as `networking.hostId` in the configuration.
+  </Step>
+  <Step title="Choose profiles">
+    The `imports` list in `configuration.nix` selects which profiles the host uses. The available profiles are:
+
+    | Profile | Contents |
+    |---|---|
+    | `base` | agenix, doas, fish, git, Lix, nix GC, openssh, users |
+    | `baremetal` | boot, ZFS, hardware, GNOME, Stylix, networking, Plymouth, Tailscale |
+
+    All baremetal hosts should import both `base` and `baremetal`.
+  </Step>
+  <Step title="Add the host SSH key to secrets.nix">
+    After the first boot (which generates `/etc/ssh/ssh_host_ed25519_key`), retrieve the host's public key:
+
+    ```bash
+    ssh-keyscan myhostname | grep ed25519
+    ```
+
+    Add it to `secrets/secrets.nix` under the appropriate recipient groups, then re-key all affected secrets:
+
+    ```bash
+    agenix -r -i ~/.ssh/id_ed25519
+    ```
+
+    See the [Secrets](/operations/secrets) page for the full re-keying workflow.
+  </Step>
+  <Step title="Create a user configuration (optional)">
+    If the host will have Home Manager users, create `hosts/myhostname/users/jel.nix`:
+
+    ```nix
+    { flake, ... }:
+    {
+      imports = with flake.modules.home-profiles; [
+        baremetal
+        base
+        userspace
+      ];
+
+      home.stateVersion = "25.11";
+    }
+    ```
+  </Step>
+</Steps>
+
+## Nix configuration
+
+### Lix instead of upstream Nix
+
+All hosts use [Lix](https://lix.systems) rather than the upstream Nix daemon. Lix is a community fork focused on correctness and performance.
+
+<Note>
+The `lix` module replaces `nix.package` with `pkgs.lixPackageSets.git.lix`. This is transparent at the `nixos-rebuild` and `nix` CLI level — all standard Nix commands work unchanged.
+</Note>
+
+```nix
+# modules/nixos/lix.nix
+{ pkgs, ... }:
+{
+  nix.package = pkgs.lixPackageSets.git.lix;
+}
+```
+
+### Flakes and nix-command
+
+Experimental features are enabled globally so that flake-based commands work on every host without additional flags:
+
+```nix
+# modules/nixos/nix.nix
+nix.settings.experimental-features = [
+  "nix-command"
+  "flakes"
+];
+```
+
+### Garbage collection
+
+The Nix store is cleaned automatically every day. Generations older than 7 days are deleted:
+
+```nix
+nix.gc = {
+  automatic = true;
+  dates = "daily";
+  options = "--delete-older-than 7d";
+};
+```
+
+### Trusted binary caches
+
+The `nix.nix` module imports the srvos trusted-caches mixin, which adds well-known community binary caches to the trusted substituters list:
+
+```nix
+imports = [ inputs.srvos.nixosModules.mixins-trusted-nix-caches ];
+```
+
+This means builds of common flake inputs (Home Manager, nixos-hardware, etc.) can be served from cache rather than built locally.
+
+## ZFS layout
+
+Baremetal hosts use ZFS with a fixed dataset layout expected by `modules/nixos/zfs.nix`:
+
+| Mount point | Dataset |
+|---|---|
+| `/` | `zpool/root` |
+| `/nix` | `zpool/nix` |
+| `/var` | `zpool/var` |
+| `/home` | `zpool/home` |
+| `/boot` | `/dev/disk/by-label/NIXBOOT` (vfat) |
+
+ZFS auto-scrub and hourly/daily/weekly snapshots are enabled. Monthly snapshots are disabled (`monthly = 0`).
+
+<Warning>
+The ZFS pool must be named `zpool` and the boot partition must have the label `NIXBOOT` for the configuration to mount filesystems correctly. Set these when partitioning the disk before the first install.
+</Warning>
+
+## Boot loader
+
+Baremetal hosts use the [Limine](https://limine-bootloader.org) bootloader with systemd-initrd enabled:
+
+```nix
+# modules/nixos/limine.nix
+boot.loader = {
+  efi.canTouchEfiVariables = true;
+
+  limine = {
+    enable = true;
+    extraConfig = "timeout: 1";
+  };
+};
+```
+
+The 1-second timeout means the boot menu is visible briefly before the default entry is selected automatically.

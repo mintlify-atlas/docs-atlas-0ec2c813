@@ -1,0 +1,363 @@
+---
+title: "Applications"
+description: "Graphical and utility applications managed by Home Manager — browsers, media, communication, and system integration."
+---
+
+Application modules are part of the [`userspace`](/modules/home/overview#userspace) and [`baremetal`](/modules/home/overview#baremetal) profiles. They are enabled on desktop machines running a full graphical session.
+
+## Firefox
+
+Firefox Nightly is installed from the `flake-firefox-nightly` flake input via `perSystem.firefox.firefox-nightly-bin`. The module manages browser policies, extension installation, profile bookmarks, and fine-grained preferences — all without touching Firefox's own sync.
+
+<AccordionGroup>
+  <Accordion title="Extensions">
+    Extensions are installed through the `ExtensionSettings` policy using direct AMO download URLs. They are provisioned on first launch without requiring sign-in.
+
+    Notable extensions include:
+
+    - **1Password** — installed from the 1Password CDN with private browsing access
+    - **uBlock Origin** — installed with private browsing access and a full admin policy (see below)
+    - **Kagi Search** — search integration with private browsing
+    - **ClearURLs**, **Privacy Badger**, **Decentraleyes** — privacy tooling
+    - **Refined GitHub**, **OctoLinker** — GitHub enhancements
+    - **SponsorBlock**, **Return YouTube Dislike** — YouTube utilities
+    - **Catppuccin Mocha – Rosewater** — browser theme
+  </Accordion>
+
+  <Accordion title="uBlock Origin policy">
+    uBlock Origin is configured via the `3rdparty.Extensions` policy, which sets admin-level defaults that override user settings. Advanced mode is enabled and a large `dynamicFilteringString` blocks all third-party frames and scripts by default, with `noop` exceptions for trusted CDNs and per-site overrides for hundreds of popular sites.
+
+    ```nix modules/home/firefox.nix (uBlock excerpt)
+    "3rdparty".Extensions."uBlock0@raymondhill.net".adminSettings = builtins.toJSON {
+      userSettings = {
+        advancedUserEnabled = true;
+        cnameUncloakEnabled = false;
+        contextMenuEnabled = false;
+        popupPanelSections = 31;
+        prefetchingDisabled = false;
+      };
+
+      selectedFilterLists = [
+        "ublock-filters"
+        "ublock-privacy"
+        "easylist"
+        "easyprivacy"
+        "fanboy-cookiemonster"
+        "fanboy-social"
+        # … and many more
+      ];
+
+      dynamicFilteringString = ''
+        * * 3p-frame block
+        * * 3p-script block
+        * ajax.googleapis.com * noop
+        * challenges.cloudflare.com * noop
+        # … per-site exceptions
+      '';
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Browser preferences">
+    Key preferences set via policy:
+
+    - HTTPS-only mode enabled
+    - Notifications blocked by default
+    - Autoplay blocked (audio and video)
+    - Picture-in-picture disabled
+    - Global Privacy Control enabled
+    - New tab page disabled
+    - Autofill for addresses and credit cards disabled
+    - Vertical tabs enabled (`sidebar.verticalTabs = true`)
+    - Smooth scrolling tuned with MSD physics constants
+    - Custom text selection highlight colours
+
+    ```nix modules/home/firefox.nix (preferences excerpt)
+    Preferences = {
+      "browser.aboutConfig.showWarning".Value = false;
+      "browser.toolbars.bookmarks.visibility".Value = "always";
+      "general.smoothScroll.msdPhysics.regularSpringConstant".Value = 400;
+      "privacy.globalprivacycontrol.enabled".Value = true;
+      "sidebar.verticalTabs".Value = true;
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Profile bookmarks">
+    The default profile includes a managed bookmarks toolbar that is force-synced on every Home Manager activation. Bookmarks are defined as anonymous entries (no names) pointing to Google Workspace, GitHub, productivity tools, social sites, and cloud consoles — plus a subfolder of API reference links.
+
+    ```nix modules/home/firefox.nix (bookmarks excerpt)
+    profiles.default.bookmarks = {
+      force = true;
+
+      settings = [
+        {
+          name = "";
+          toolbar = true;
+
+          bookmarks = [
+            { name = ""; url = "https://jel.gay/password-generator"; }
+            "separator"
+            { name = ""; url = "https://www.youtube.com/feed/history"; }
+            # …
+          ];
+        }
+      ];
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  Stylix applies its theme to the `default` Firefox profile. The Catppuccin Mocha browser theme extension handles the toolbar colours.
+</Note>
+
+## mpv
+
+mpv is the default media player. It is enabled with no additional Nix-side configuration; all mpv options are handled outside Home Manager or left at defaults.
+
+```nix modules/home/mpv.nix
+{ ... }:
+{
+  programs.mpv.enable = true;
+}
+```
+
+## Vesktop
+
+Vesktop is a desktop wrapper for Discord that bundles [Vencord](https://vencord.dev/). The module enables Discord Canary, disables the splash screen, and configures spell-check for English and Polish. Vencord is configured with a large set of plugins and two CSS themes.
+
+<AccordionGroup>
+  <Accordion title="App settings">
+    ```nix modules/home/vesktop.nix (settings excerpt)
+    settings = {
+      discordBranch = "canary";
+      enableSplashScreen = false;
+
+      spellCheckLanguages = [
+        "en-US"
+        "pl"
+      ];
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Vencord themes">
+    Two external CSS themes are loaded via `themeLinks`:
+
+    - `discord-adblock` — removes Discord ad elements
+    - `catppuccin-mocha` — applies the Catppuccin Mocha colour palette
+
+    A local theme named `hide-nitro-gift` hides the Nitro gift button from the chat input.
+
+    ```nix modules/home/vesktop.nix (themes excerpt)
+    vencord.settings = {
+      themeLinks = [
+        "https://croissantdunord.github.io/discord-adblock/adblock.css"
+        "https://catppuccin.github.io/discord/dist/catppuccin-mocha.theme.css"
+      ];
+    };
+
+    vencord.themes.hide-nitro-gift = ''
+      div[class*="channelTextArea_"] div[class*="buttons__"] > div:nth-of-type(3) {
+        display: none;
+      }
+    '';
+    ```
+  </Accordion>
+
+  <Accordion title="Vencord plugins">
+    A curated selection of Vencord plugins is enabled. Key plugins include:
+
+    | Plugin | Effect |
+    |--------|--------|
+    | `MessageLogger` | Logs deleted/edited messages (overlay style, ignores bots and self) |
+    | `MessageLatency` | Shows message delivery latency in milliseconds |
+    | `ShikiCodeblocks` | Syntax-highlighted code blocks using GitHub Dark theme |
+    | `ShowHiddenChannels` | Reveals channels you lack permission to read |
+    | `NotificationVolume` | Caps notification volume at 25% |
+    | `YoutubeAdblock` | Blocks YouTube ads in embeds |
+    | `Translate` | In-message translation (chat bar button hidden) |
+    | `TypingIndicator` | Shows typing indicators including muted channels and blocked users |
+    | `ReviewDB` | User review integration (warning suppressed) |
+  </Accordion>
+</AccordionGroup>
+
+## Mullvad VPN
+
+The Mullvad VPN desktop client is enabled. The system tray icon is set to monochrome.
+
+```nix modules/home/mullvad-vpn.nix
+{ ... }:
+{
+  programs.mullvad-vpn = {
+    enable = true;
+    settings.monochromaticIcon = true;
+  };
+}
+```
+
+## Halloy
+
+Halloy is a native IRC client. The module connects to Freenode using the `je` nickname and reads the nick password from an age-encrypted secret managed by agenix.
+
+```nix modules/home/halloy.nix
+{ osConfig, ... }:
+{
+  programs.halloy = {
+    enable = true;
+
+    settings = {
+      buffer.buffer_separator.hide_when_all_read = true;
+      buffer.text_input.auto_format = "all";
+
+      notifications.direct_message = {
+        sound = "peck";
+        show_toast = true;
+        show_content = true;
+      };
+
+      notifications.highlight.sound = "dong";
+
+      servers.freenode = {
+        nickname = "je";
+        username = "jel";
+        server = "irc.freenode.net";
+        nick_password_file = osConfig.age.secrets.freenode-je-password.path;
+      };
+    };
+  };
+}
+```
+
+The nick password path is resolved from `osConfig` at build time, so it is always the correct path for the host that activates this module.
+
+## GNOME integration
+
+The `gnome` module registers GNOME Shell extensions and seeds the Clipboard Indicator extension with a set of favourite Unicode characters.
+
+```nix modules/home/gnome.nix
+{ pkgs, ... }:
+{
+  programs.gnome-shell = {
+    enable = true;
+
+    extensions = with pkgs.gnomeExtensions; [
+      { package = auto-move-windows; }
+      { package = clipboard-indicator; }
+      { package = launch-new-instance; }
+      { package = removable-drive-menu; }
+      { package = status-icons; }
+      { package = steal-my-focus-window; }
+      { package = system-monitor; }
+      { package = wallpaper-slideshow; }
+    ];
+  };
+
+  xdg.cacheFile."clipboard-indicator@tudmotu.com/registry.txt".text = builtins.toJSON (
+    map
+      (contents: {
+        favorite = true;
+        mimetype = "text/plain;charset=utf-8";
+        inherit contents;
+      })
+      [
+        "…"
+        "„""
+        "–"
+        "—"
+        "»"
+      ]
+  );
+}
+```
+
+The clipboard favourites (`…`, `„"`, `–`, `—`, `»`) are written directly into the extension's registry cache so they appear immediately without manual configuration.
+
+## udiskie
+
+udiskie runs as a user service and automatically mounts removable drives (USB sticks, external disks) when they are plugged in.
+
+```nix modules/home/udiskie.nix
+{ ... }:
+{
+  services.udiskie.enable = true;
+}
+```
+
+## yt-dlp
+
+yt-dlp is enabled for video downloading from YouTube and other supported sites. No additional configuration is applied through Home Manager.
+
+```nix modules/home/yt-dlp.nix
+{ ... }:
+{
+  programs.yt-dlp.enable = true;
+}
+```
+
+## aria2
+
+aria2 is a multi-protocol download manager. It is part of the `base` profile, making it available on all hosts including headless servers.
+
+```nix modules/home/aria2.nix
+{ ... }:
+{
+  programs.aria2.enable = true;
+}
+```
+
+## 1Password
+
+The `_1password` module configures the SSH agent socket used by the 1Password desktop application, and routes Jujutsu commit signing through 1Password's native `op-ssh-sign` binary.
+
+```nix modules/home/_1password.nix
+{ ... }:
+{
+  programs = {
+    jujutsu.settings.signing.backends.ssh.program = "op-ssh-sign";
+    ssh.matchBlocks."*".identityAgent = "~/.1password/agent.sock";
+  };
+}
+```
+
+All SSH connections pick up the 1Password agent automatically via the `identityAgent` match block. See [Jujutsu signing](/modules/home/development#jujutsu-signing) for how commit signing is wired up.
+
+## SSH
+
+The SSH client is enabled with `enableDefaultConfig = false` (removing the system default config once that becomes the Home Manager default) and agent forwarding turned on for all hosts.
+
+```nix modules/home/ssh.nix
+{ ... }:
+{
+  programs.ssh = {
+    enable = true;
+    enableDefaultConfig = false;
+    matchBlocks."*".forwardAgent = true;
+  };
+}
+```
+
+<Note>
+  `ssh` is part of the `baremetal` profile. On WSL, the Windows SSH agent is used directly — see [`wsl-1password`](/modules/home/development#wsl-specific-tools) on the development page.
+</Note>
+
+## Stylix home theming
+
+The `stylix` module configures which Home Manager targets Stylix should theme. Firefox is targeted by profile name, while Fish, VS Code, and Zed opt out because they manage their own Catppuccin themes.
+
+```nix modules/home/stylix.nix
+{ ... }:
+{
+  stylix.targets = {
+    firefox.profileNames = [ "default" ];
+    fish.enable = false;
+    vscode.enable = false;
+    zed.enable = false;
+  };
+}
+```
+
+<Note>
+  `stylix` is part of the `baremetal` profile. WSL environments do not apply graphical Stylix targets.
+</Note>

@@ -1,0 +1,158 @@
+---
+title: "dreamweaver"
+description: "The home server — bare-metal x86_64-linux with ZFS, running GoToSocial, Matrix, Home Assistant, and other self-hosted services."
+---
+
+`dreamweaver` is the home server. It runs NixOS bare-metal on `x86_64-linux` with a ZFS-compatible kernel and the `server` profile, which enables a curated collection of self-hosted services ranging from a federated social network to home automation.
+
+## Profiles
+
+`dreamweaver` imports four NixOS profiles:
+
+<AccordionGroup>
+  <Accordion title="base" icon="cube">
+    The foundation of every host. Enables:
+
+    - **Nix toolchain**: Lix (the Nix implementation), flake support, and `nix-ld` for dynamic linker compatibility
+    - **Shell**: Fish shell with system-wide configuration
+    - **User management**: Declarative user accounts via the `users` module
+    - **Privilege escalation**: `doas` instead of `sudo`
+    - **Secrets**: `agenix` for age-encrypted secret management
+    - **Remote access**: OpenSSH server
+    - **Tools**: `git`, `wget2`, `safe-rm`, `moor`
+    - **Host identity**: Hostname set from the directory name via `host-name`
+  </Accordion>
+  <Accordion title="baremetal" icon="microchip">
+    Hardware and display configuration for physical machines. Enables:
+
+    - **Boot**: Limine bootloader with Plymouth boot splash
+    - **Display**: X server and `kmscon` for kernel-mode console
+    - **Networking**: NetworkManager and NTP time synchronisation
+    - **Firewall** and **DNS** configuration
+    - **Storage**: ZFS filesystem support
+    - **Hardware**: `fwupd` firmware updates, hardware-specific tuning
+    - **Power management** and system suspend
+    - **Services**: Tailscale VPN, PostgreSQL, Terminfo
+    - **Theming**: Stylix (Catppuccin Mocha system-wide theme)
+    - **User**: `user-jel` system account
+  </Accordion>
+  <Accordion title="latest-zfs-kernel" icon="hard-drive">
+    Overrides the default NixOS kernel with the latest kernel version that ZFS supports. Delegates to the `latest-zfs-kernel` NixOS module. On a server, this ensures ZFS data integrity features are available without running a kernel too old for current hardware.
+  </Accordion>
+  <Accordion title="server" icon="server">
+    Self-hosted services and server hardening. See the [services section](#services) below for the full list.
+  </Accordion>
+</AccordionGroup>
+
+## Kernel and boot configuration
+
+`dreamweaver` loads the following kernel modules at initrd and runtime:
+
+```nix
+boot = {
+  initrd.availableKernelModules = [
+    "ahci"
+    "nvme"
+    "rtsx_pci_sdmmc"
+    "sd_mod"
+    "usb_storage"
+    "usbhid"
+    "xhci_pci"
+  ];
+
+  kernelModules = [ "kvm-intel" ];
+};
+```
+
+`rtsx_pci_sdmmc` is included for the Realtek PCIe SD card reader present in the server hardware. `kvm-intel` enables hardware-accelerated virtualisation on the Intel CPU.
+
+## Services
+
+The `server` profile enables the following modules:
+
+| Module | Description |
+|--------|-------------|
+| `gotosocial` | [GoToSocial](https://gotosocial.org) — lightweight ActivityPub social server |
+| `matrix-tuwunel` | [Tuwunel](https://tuwunel.chat) — Matrix homeserver (conduwuit fork) |
+| `home-assistant` | [Home Assistant](https://www.home-assistant.io) — home automation platform |
+| `gonic` | [Gonic](https://github.com/sentriz/gonic) — Subsonic-compatible music streaming server |
+| `music-assistant` | [Music Assistant](https://music-assistant.io) — music library manager |
+| `copyparty` | [Copyparty](https://github.com/9001/copyparty) — HTTP file server |
+| `etherpad` | [Etherpad](https://etherpad.org) — collaborative text editor |
+| `kubo` | [Kubo](https://github.com/ipfs/kubo) — IPFS node |
+| `qbittorrent` | [qBittorrent](https://www.qbittorrent.org) — BitTorrent client |
+| `cloudflared` | [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) — secure ingress without port forwarding |
+| `i2pd` | [i2pd](https://i2pd.website) — I2P router daemon |
+| `snowflake-proxy` | [Snowflake](https://snowflake.torproject.org) — Tor pluggable transport proxy |
+| `docker` | Docker container runtime |
+| `cron` | Cron job scheduling |
+| `initrd-ssh` | SSH access during early boot for remote ZFS unlock |
+| `srvos-server` | [srvos](https://github.com/nix-community/srvos) server hardening profile |
+| `user-rib` | Server-specific system account |
+
+## Platform and state version
+
+```nix
+networking.hostId = "70726f6d";
+nixpkgs.hostPlatform = "x86_64-linux";
+system.stateVersion = "25.11";
+```
+
+The `hostId` uniquely identifies this machine for ZFS pool import. The `stateVersion` pins the NixOS state format to 25.11.
+
+## Users
+
+### NixOS users
+
+The `baremetal` profile creates the `jel` user account via `user-jel`. The `server` profile adds the `rib` service account via `user-rib`.
+
+### Home Manager — `jel`
+
+The per-user Home Manager configuration at `hosts/dreamweaver/users/jel.nix` imports two home profiles (no `userspace`, since this is a headless server):
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.home-profiles; [
+    baremetal
+    base
+  ];
+
+  home.stateVersion = "25.11";
+}
+```
+
+- **`base`**: Core dotfiles — shell, Git, editor, and developer tools
+- **`baremetal`**: Physical-machine configuration (without the desktop application layer)
+
+## Full configuration
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.nixos-profiles; [
+    baremetal
+    base
+    latest-zfs-kernel
+    server
+  ];
+
+  boot = {
+    initrd.availableKernelModules = [
+      "ahci"
+      "nvme"
+      "rtsx_pci_sdmmc"
+      "sd_mod"
+      "usb_storage"
+      "usbhid"
+      "xhci_pci"
+    ];
+
+    kernelModules = [ "kvm-intel" ];
+  };
+
+  networking.hostId = "70726f6d";
+  nixpkgs.hostPlatform = "x86_64-linux";
+  system.stateVersion = "25.11";
+}
+```

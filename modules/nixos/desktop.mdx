@@ -1,0 +1,328 @@
+---
+title: "Desktop"
+description: "NixOS modules that configure the GNOME desktop environment, audio, display, GPU support, and userspace applications."
+---
+
+The desktop modules compose a full graphical environment on top of bare-metal NixOS. They cover the display stack (X server + GNOME + GDM), audio (PipeWire), boot visuals (Plymouth), virtual console (kmscon), NVIDIA GPU support, and a curated set of userspace packages.
+
+## Display stack
+
+### X server (`xserver.nix`)
+
+Configures the X keyboard extension with a custom Polish Workman layout. The layout file lives at `symbols/pl-workman` in the repository root.
+
+```nix
+services.xserver = {
+  excludePackages = [ pkgs.xterm ];
+
+  xkb = {
+    layout = "pl-workman";
+    options = "shift:breaks_caps";
+
+    extraLayouts.pl-workman = {
+      description = "Polish (Workman)";
+      languages = [ "pol" ];
+      symbolsFile = ../../symbols/pl-workman;
+    };
+  };
+};
+```
+
+### GNOME (`gnome.nix`)
+
+Enables GNOME Shell with GDM and configures it entirely through locked dconf profiles — the same database is applied to both the user session and the GDM login screen. `gnome-tour` is excluded from the default package set, and GNOME core apps are disabled in favour of individually selected packages.
+
+```nix
+services = {
+  desktopManager.gnome.enable = true;
+
+  displayManager = {
+    gdm.enable = true;
+    autoLogin.user = "jel";
+  };
+
+  gnome.core-apps.enable = false;
+};
+```
+
+The dconf profile sets `lockAll = true`, so every key below is system-managed and cannot be changed at runtime.
+
+<AccordionGroup>
+  <Accordion title="Input sources">
+    Two keyboard layouts are configured: Polish Workman (primary) and standard Polish. Shift breaks Caps Lock.
+
+    ```nix
+    "org/gnome/desktop/input-sources" = {
+      show-all-sources = true;
+
+      sources = [
+        (lib.gvariant.mkTuple [ "xkb" "pl-workman" ])
+        (lib.gvariant.mkTuple [ "xkb" "pl" ])
+      ];
+
+      xkb-options = [ "shift:breaks_caps" ];
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Interface">
+    Purple accent colour, seconds and weekday in the clock, Bibata Modern Ice cursor, hot corners off, primary paste disabled, battery percentage shown.
+
+    ```nix
+    "org/gnome/desktop/interface" = {
+      accent-color = "purple";
+      clock-show-seconds = true;
+      clock-show-weekday = true;
+      cursor-theme = "Bibata-Modern-Ice";
+      enable-hot-corners = false;
+      font-hinting = "none";
+      gtk-enable-primary-paste = false;
+      show-battery-percentage = true;
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Window management keybindings">
+    The default workspace-switching shortcuts are cleared. Window switching uses `Alt+Tab` / `Shift+Alt+Tab` rather than the application switcher.
+
+    ```nix
+    "org/gnome/desktop/wm/keybindings" = {
+      switch-to-workspace-down = lib.gvariant.mkEmptyArray lib.gvariant.type.string;
+      switch-to-workspace-up   = lib.gvariant.mkEmptyArray lib.gvariant.type.string;
+      switch-windows          = [ "<Alt>Tab" ];
+      switch-windows-backward = [ "<Shift><Alt>Tab" ];
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Automatic window placement">
+    The `auto-move-windows` extension assigns applications to fixed workspaces on launch.
+
+    ```nix
+    "org/gnome/shell/extensions/auto-move-windows".application-list = [
+      "code.desktop:1"
+      "dev.zed.Zed.desktop:1"
+      "firefox-nightly.desktop:1"
+      "org.telegram.desktop.desktop:2"
+      "vesktop.desktop:3"
+    ];
+    ```
+  </Accordion>
+
+  <Accordion title="Custom keybindings">
+    A single custom keybinding opens the 1Password Quick Access overlay.
+
+    ```nix
+    "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0" = {
+      binding = "<Shift><Control>space";
+      command = "1password --quick-access";
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Power and night light">
+    The system never sleeps on AC power. On battery, it sleeps after 30 minutes. Night light starts at 22:00.
+
+    ```nix
+    "org/gnome/settings-daemon/plugins/power" = {
+      ambient-enabled           = false;
+      idle-dim                  = false;
+      sleep-inactive-ac-type    = "nothing";
+      sleep-inactive-battery-timeout = lib.gvariant.mkUint16 1800;
+    };
+
+    "org/gnome/settings-daemon/plugins/color" = {
+      night-light-enabled        = true;
+      night-light-schedule-from  = 22.0;
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Privacy">
+    Recent files are not remembered. Temporary files and trash older than 7 days are removed automatically.
+
+    ```nix
+    "org/gnome/desktop/privacy" = {
+      old-files-age          = lib.gvariant.mkUint16 7;
+      remember-recent-files  = false;
+      remove-old-temp-files  = true;
+      remove-old-trash-files = true;
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Clipboard Indicator extension">
+    The clipboard history is limited to 100 entries, only favourites are cached, and `Super+V` opens the history menu.
+
+    ```nix
+    "org/gnome/shell/extensions/clipboard-indicator" = {
+      cache-only-favorites = true;
+      history-size         = lib.gvariant.mkUint16 100;
+      paste-on-select      = true;
+      toggle-menu          = [ "<Super>v" ];
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Wallpaper slideshow (AzWallpaper)">
+    The wallpaper slideshow rotates images from the `wallpapers/` directory in the repository, advancing once per hour.
+
+    ```nix
+    "org/gnome/shell/extensions/azwallpaper" = {
+      slideshow-directory = "${../../wallpapers}";
+
+      slideshow-slide-duration = lib.gvariant.mkTuple (
+        map lib.gvariant.mkInt32 [ 1 0 0 ]
+      );
+
+      slideshow-use-absolute-time-for-duration = true;
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Mutter experimental features">
+    Variable refresh rate is enabled via the `experimental-features` key.
+
+    ```nix
+    "org/gnome/mutter".experimental-features = [ "variable-refresh-rate" ];
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Audio — PipeWire (`pipewire.nix`)
+
+PipeWire is enabled with PulseAudio compatibility. The `always-sink` behaviour in the pulse compatibility layer is disabled so PipeWire does not force a default sink when none is available.
+
+```nix
+services.pipewire = {
+  enable = true;
+  extraConfig.pipewire-pulse.disable-always-sink."pulse.properties"."pulse.cmd.always-sink" = false;
+  pulse.enable = true;
+};
+```
+
+## Boot screen — Plymouth (`plymouth.nix`)
+
+Plymouth shows an animated boot splash using the Hackerspace Żyrardów logo from `assets/hackerspace-zyrardow.png`.
+
+```nix
+boot.plymouth = {
+  enable = true;
+  logo   = ../../assets/hackerspace-zyrardow.png;
+};
+```
+
+## Virtual console — kmscon (`kmscon.nix`)
+
+`kmscon` replaces the standard kernel virtual terminals and inherits the XKB keyboard configuration so the custom Polish Workman layout is available on TTYs.
+
+```nix
+services.kmscon = {
+  enable       = true;
+  useXkbConfig = true;
+};
+
+systemd.services."kmsconvt@".environment.XKB_CONFIG_ROOT =
+  config.services.xserver.xkb.dir;
+```
+
+## NVIDIA GPU (`nvidia.nix`)
+
+The NVIDIA Pascal hardware profile from `nixos-hardware` is imported and power management is enabled.
+
+```nix
+imports = [ "${inputs.nixos-hardware}/common/gpu/nvidia/pascal" ];
+hardware.nvidia.powerManagement.enable = true;
+```
+
+## Userspace applications
+
+### 1Password (`_1password.nix`)
+
+Both the CLI and the GUI are enabled. The polkit policy grants the `jel` user system-level authentication. Firefox Nightly is registered as an allowed browser for the SSH agent integration.
+
+```nix
+environment.etc."1password/custom_allowed_browsers" = {
+  text = "firefox-nightly-bin";
+  mode = "0755";
+};
+
+programs = {
+  _1password.enable = true;
+
+  _1password-gui = {
+    enable          = true;
+    polkitPolicyOwners = [ "jel" ];
+  };
+};
+```
+
+### Flatpak (`flatpak.nix`)
+
+```nix
+services.flatpak.enable = true;
+```
+
+### Printing (`printing.nix`)
+
+```nix
+services.printing.enable = true;
+```
+
+### Steam (`steam.nix`)
+
+```nix
+programs.steam.enable = true;
+```
+
+### OBS Studio (`obs-studio.nix`)
+
+OBS is installed with virtual camera support and six plugins: background removal, GStreamer source, PipeWire audio capture, VA-API output, Vulkan capture, and wlroots screen capture.
+
+```nix
+programs.obs-studio = {
+  enable              = true;
+  enableVirtualCamera = true;
+
+  plugins = with pkgs.obs-studio-plugins; [
+    obs-backgroundremoval
+    obs-gstreamer
+    obs-pipewire-audio-capture
+    obs-vaapi
+    obs-vkcapture
+    wlrobs
+  ];
+};
+```
+
+### Ollama (`ollama.nix`)
+
+Ollama runs with ROCm acceleration targeting a GFX 11.0.0 (RDNA 3) GPU.
+
+```nix
+services.ollama = {
+  enable           = true;
+  acceleration     = "rocm";
+  rocmOverrideGfx  = "11.0.0";
+};
+```
+
+### System packages (`userspace-packages.nix`)
+
+The `userspace-packages` module adds a broad set of applications to `environment.systemPackages`. Key categories include:
+
+| Category | Packages |
+|---|---|
+| Development | `deno`, `nodejs`, `nil`, `nixd`, `nixfmt`, `prettier`, `python314`, `google-cloud-sdk`, `stripe-cli`, `httptoolkit`, `insomnia`, `sqlitebrowser` |
+| Media & Audio | `audacity`, `davinci-resolve-studio`, `famistudio`, `ffmpeg-full`, `handbrake`, `quodlibet-full`, `reaper`, `snapshot` |
+| Graphics & 3D | `bambu-studio`, `gimp3`, `imagemagick`, `inkscape`, `pinta`, `prusa-slicer` |
+| Fonts | `fira-code`, `inter`, `iosevka-bin` |
+| Security & Privacy | `keybase-gui`, `sparrow`, `tor`, `tor-browser`, `trezor-suite`, `yubikey-manager` |
+| Utilities | `_7zz`, `baobab`, `binwalk`, `dig`, `dust`, `espeak`, `exiftool`, `gparted`, `languagetool`, `loupe`, `magic-wormhole-rs`, `nautilus`, `parted`, `pv`, `tlrc`, `usbutils` |
+| Office & Communication | `libreoffice-fresh`, `slack`, `telegram-desktop`, `tutanota-desktop` |
+| Gaming & VMs | `heroic`, `olympus`, `parsec-bin`, `prismlauncher`, `superTuxKart`, `vmware-workstation` |
+| System | `bibata-cursors`, `gnome-calculator`, `gnome-characters`, `gnome-logs`, `gnome-system-monitor`, `uutils-coreutils-noprefix` |
+
+<Note>
+  `uutils-coreutils-noprefix` is included, which replaces the standard GNU coreutils implementations with Rust rewrites.
+</Note>

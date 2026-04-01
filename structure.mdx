@@ -1,0 +1,492 @@
+---
+title: Structure
+description: How nix-configuration is laid out — the flake inputs, blueprint framework, directory structure, and the profile and module systems that keep host configurations concise.
+---
+
+The entire repository is a single Nix Flake. Everything — hosts, modules, secrets, assets — lives under one root, and the outputs are derived automatically from the directory layout by the `blueprint` framework. This page explains how all the pieces connect.
+
+## The flake.nix file
+
+`flake.nix` is intentionally minimal. All 59 lines are inputs and a one-line output expression:
+
+```nix flake.nix
+{
+  inputs = {
+    agenix = {
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    blueprint = {
+      url = "github:numtide/blueprint";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # ... (remaining inputs) ...
+
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+  };
+
+  outputs = inputs: inputs.blueprint { inherit inputs; };
+}
+```
+
+The `outputs` line delegates everything to `blueprint`. There is no manual `nixosConfigurations`, `homeConfigurations`, or `packages` attribute set — blueprint generates them by scanning the repository.
+
+### Flake inputs
+
+<AccordionGroup>
+  <Accordion title="nixpkgs" icon="box">
+    **`github:NixOS/nixpkgs/nixos-25.11`**
+
+    The primary package set. Pinned to the `nixos-25.11` stable branch. All other inputs that accept a `nixpkgs` override are told to follow this one via `inputs.nixpkgs.follows = "nixpkgs"`, so the entire dependency graph shares a single Nixpkgs revision.
+  </Accordion>
+
+  <Accordion title="home-manager" icon="house">
+    **`github:nix-community/home-manager/release-25.11`**
+
+    Manages user-level configuration — dotfiles, application settings, shell profiles — using the Nix expression language. Pinned to the matching `release-25.11` branch.
+  </Accordion>
+
+  <Accordion title="blueprint" icon="map">
+    **`github:numtide/blueprint`**
+
+    Auto-discovers hosts and modules from the directory layout and wires them into flake outputs. See [How blueprint works](#how-blueprint-works) below.
+  </Accordion>
+
+  <Accordion title="agenix" icon="lock">
+    **`github:ryantm/agenix`**
+
+    Provides the `age` secret management system for NixOS. Secrets are encrypted with the host's SSH key and stored as `.age` files under `secrets/`. The `agenix` NixOS module decrypts them at activation time.
+  </Accordion>
+
+  <Accordion title="stylix" icon="palette">
+    **`github:nix-community/stylix/release-25.11`**
+
+    Generates a unified color scheme from a base16 palette and applies it to terminals, editors, GNOME, and other applications. Pinned to `release-25.11`.
+  </Accordion>
+
+  <Accordion title="srvos" icon="server">
+    **`github:nix-community/srvos`**
+
+    Opinionated NixOS modules from numtide for servers and workstations. Used via the `srvos-server`, `srvos-userspace`, and `srvos-wsl` NixOS modules.
+  </Accordion>
+
+  <Accordion title="nixos-hardware" icon="microchip">
+    **`github:NixOS/nixos-hardware`**
+
+    A collection of hardware-specific NixOS modules contributed by the community. Used by the `framework-16-7040-amd` nixos-profile to apply tweaks specific to that laptop model.
+  </Accordion>
+
+  <Accordion title="nixos-wsl" icon="terminal">
+    **`github:nix-community/NixOS-WSL/release-25.11`**
+
+    Enables NixOS to run inside Windows Subsystem for Linux. Used by the `wsl` NixOS module and both WSL hosts.
+  </Accordion>
+
+  <Accordion title="nix-vscode-extensions" icon="code">
+    **`github:nix-community/nix-vscode-extensions`**
+
+    A large, frequently-updated package set of VS Code extensions for Nix. Used by the `vscode` NixOS and Home Manager modules to install extensions declaratively.
+  </Accordion>
+
+  <Accordion title="firefox" icon="globe">
+    **`github:nix-community/flake-firefox-nightly`**
+
+    Nightly Firefox builds packaged for Nix. Used by the `firefox` Home Manager module.
+  </Accordion>
+
+  <Accordion title="copyparty" icon="folder-open">
+    **`github:9001/copyparty`**
+
+    The copyparty self-hosted file server, included as a flake input so its version is explicitly pinned independently of Nixpkgs.
+  </Accordion>
+
+  <Accordion title="catppuccin-fish" icon="fish">
+    **`github:catppuccin/fish`** (`flake = false`)
+
+    The Catppuccin color theme for the Fish shell. Declared with `flake = false` because it is a plain source archive, not a Nix flake — it is imported directly by the Fish Home Manager module.
+  </Accordion>
+</AccordionGroup>
+
+## How blueprint works
+
+[blueprint](https://github.com/numtide/blueprint) is a flake framework that turns a structured directory layout into flake outputs. The entire output expression is:
+
+```nix flake.nix
+outputs = inputs: inputs.blueprint { inherit inputs; };
+```
+
+When you pass the flake's `inputs` to `blueprint`, it:
+
+1. Scans `hosts/` for directories containing a `configuration.nix`, and creates a `nixosConfigurations` entry for each one.
+2. Scans `modules/nixos/` for `.nix` files and exposes them as `nixosModules`.
+3. Scans `modules/home/` for `.nix` files and exposes them as `homeModules`.
+4. Makes any additional directories (like `modules/nixos-profiles/` and `modules/home-profiles/`) available under `flake.modules`.
+
+Inside every module and host configuration, `flake` is passed as a special argument. This gives every file access to `flake.nixosModules`, `flake.homeModules`, and `flake.modules.nixos-profiles` / `flake.modules.home-profiles` without any manual wiring.
+
+<Note>
+  Because blueprint discovers modules by filename, adding a new NixOS module is as simple as creating a new `.nix` file in `modules/nixos/`. It appears in `flake.nixosModules` automatically.
+</Note>
+
+## Directory structure
+
+```
+nix-configuration/
+├── flake.nix                   # Inputs and single-line outputs
+├── flake.lock                  # Pinned dependency revisions
+├── hosts/                      # One directory per machine
+│   ├── dreamweaver/
+│   ├── hlebak/
+│   ├── hydromechanizator/
+│   ├── hlebak-wsl/
+│   └── spycharkozrywarka-wsl/
+├── modules/
+│   ├── nixos/                  # Individual NixOS modules (~70 files)
+│   ├── home/                   # Individual Home Manager modules (~35 files)
+│   ├── nixos-profiles/         # Bundles of NixOS modules by role
+│   └── home-profiles/          # Bundles of Home Manager modules by role
+├── secrets/                    # age-encrypted secrets + secrets.nix manifest
+├── assets/                     # Miscellaneous static assets
+├── symbols/                    # Icon/symbol assets
+└── wallpapers/                 # Wallpaper images used by Stylix
+```
+
+### `hosts/`
+
+Each subdirectory corresponds to one machine. A host directory contains at minimum a `configuration.nix` that imports profiles and sets host-specific values (kernel modules, `hostId`, `hostPlatform`, `stateVersion`), and a `users/` directory with Home Manager configurations for each user on that host.
+
+### `modules/nixos/`
+
+Contains ~70 single-purpose NixOS module files. Each file configures one service or feature — `docker.nix`, `gnome.nix`, `tailscale.nix`, and so on. These are exposed as `flake.nixosModules` and are consumed almost exclusively through profiles, not imported directly by hosts.
+
+### `modules/home/`
+
+Contains ~35 single-purpose Home Manager module files — one per application or tool. Examples: `fish.nix`, `helix.nix`, `vscode.nix`, `ghostty.nix`. Exposed as `flake.homeModules`.
+
+### `modules/nixos-profiles/` and `modules/home-profiles/`
+
+Profiles are bundles: each profile file imports a set of related modules for a particular machine role. See [The profile system](#the-profile-system) below.
+
+### `secrets/`
+
+Contains age-encrypted secret files (`.age`) and a `secrets.nix` manifest that maps each secret to the set of public keys that can decrypt it.
+
+### `assets/`, `symbols/`, `wallpapers/`
+
+Static files used by the configuration — icon assets, symbols, and wallpaper images referenced by the Stylix theming module.
+
+## The profile system
+
+Profiles solve a layering problem: most modules should be active on multiple machines, but importing 70 individual modules in every host `configuration.nix` would be unmanageable. Profiles group related modules into named bundles that hosts import by role.
+
+<Tabs>
+  <Tab title="NixOS profiles">
+    Each profile file uses `flake.nixosModules` to compose a set of individual modules:
+
+    **`base`** — imported by every host. Contains the fundamental system building blocks:
+
+    ```nix modules/nixos-profiles/base.nix
+    { flake, ... }:
+    {
+      imports = with flake.nixosModules; [
+        agenix
+        doas
+        fish
+        git
+        host-name
+        lix
+        moor
+        nix
+        nix-ld
+        openssh
+        safe-rm
+        users
+        wget2
+      ];
+    }
+    ```
+
+    **`baremetal`** — imported by all physical machines (not WSL). Adds boot, hardware, networking, ZFS, display, and theming:
+
+    ```nix modules/nixos-profiles/baremetal.nix
+    { flake, ... }:
+    {
+      imports = with flake.nixosModules; [
+        boot
+        dns
+        firewall
+        fwupd
+        hardware
+        kmscon
+        limine
+        networkmanager
+        ntp
+        plymouth
+        postgresql
+        power-management
+        stylix
+        tailscale
+        terminfo
+        user-jel
+        xserver
+        zfs
+      ];
+    }
+    ```
+
+    **`userspace`** — imported by workstations with a graphical desktop. Adds GNOME, audio, applications, and user-facing services:
+
+    ```nix modules/nixos-profiles/userspace.nix
+    { flake, ... }:
+    {
+      imports = with flake.nixosModules; [
+        _1password
+        docker
+        flatpak
+        gnome
+        gvfs
+        halloy
+        location
+        obs-studio
+        ollama
+        pipewire
+        printing
+        srvos-userspace
+        steam
+        udisks2
+        user-guest
+        userspace-packages
+        vscode
+      ];
+    }
+    ```
+
+    **`server`** — imported by the home server. Contains self-hosted services:
+
+    ```nix modules/nixos-profiles/server.nix
+    { flake, ... }:
+    {
+      imports = with flake.nixosModules; [
+        cloudflared
+        copyparty
+        cron
+        docker
+        etherpad
+        gonic
+        gotosocial
+        home-assistant
+        i2pd
+        initrd-ssh
+        kubo
+        matrix-tuwunel
+        music-assistant
+        qbittorrent
+        snowflake-proxy
+        srvos-server
+        user-rib
+      ];
+    }
+    ```
+
+    **`wsl`** — imported by WSL hosts. Adds WSL integration and a WSL-specific user:
+
+    ```nix modules/nixos-profiles/wsl.nix
+    { flake, ... }:
+    {
+      imports = with flake.nixosModules; [
+        postgresql
+        srvos-wsl
+        user-jel-wsl
+        wsl
+      ];
+    }
+    ```
+
+    Hardware-specific profiles (`nvidia`, `framework-16-7040-amd`, `latest-zfs-kernel`) each wrap a single module and are imported selectively by the hosts that need them.
+  </Tab>
+
+  <Tab title="Home Manager profiles">
+    Home Manager profiles follow the same pattern, using `flake.homeModules`:
+
+    **`base`** — developer tools active for every user on every host:
+
+    ```nix modules/home-profiles/base.nix
+    { flake, ... }:
+    {
+      imports = with flake.homeModules; [
+        aria2
+        bat
+        delta
+        direnv
+        eza
+        fish
+        gcc
+        github
+        home-manager
+        jujutsu
+        ripgrep
+        uv
+      ];
+    }
+    ```
+
+    **`userspace`** — graphical applications for desktop users:
+
+    ```nix modules/home-profiles/userspace.nix
+    { flake, ... }:
+    {
+      imports = with flake.homeModules; [
+        _1password
+        claude-code
+        firefox
+        ghostty
+        gnome
+        halloy
+        helix
+        jujutsu-signing
+        mpv
+        mullvad-vpn
+        nushell
+        udiskie
+        vesktop
+        vscode
+        xdg
+        yt-dlp
+        zed
+      ];
+    }
+    ```
+
+    **`baremetal`** — system monitoring tools for physical machines:
+
+    ```nix modules/home-profiles/baremetal.nix
+    { flake, ... }:
+    {
+      imports = with flake.homeModules; [
+        bottom
+        htop
+        ssh
+        stylix
+      ];
+    }
+    ```
+
+    **`wsl`** — WSL-specific git configuration:
+
+    ```nix modules/home-profiles/wsl.nix
+    { flake, ... }:
+    {
+      imports = [ flake.homeModules.wsl-git ];
+    }
+    ```
+
+    **`wsl-1password`** — adds 1Password SSH agent integration for WSL hosts that have 1Password available:
+
+    ```nix modules/home-profiles/wsl-1password.nix
+    { flake, ... }:
+    {
+      imports = with flake.homeModules; [
+        jujutsu-signing
+        wsl-1password
+      ];
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## How a host configuration comes together
+
+A host `configuration.nix` picks its profiles and then adds the minimum amount of host-specific configuration (kernel modules for hardware detection, a ZFS `hostId`, and `stateVersion`):
+
+<Steps>
+  <Step title="Import profiles">
+    The host selects which profiles match its role. For example, `hlebak` is a physical desktop workstation with a GPU:
+
+    ```nix hosts/hlebak/configuration.nix
+    { flake, ... }:
+    {
+      imports = with flake.modules.nixos-profiles; [
+        baremetal
+        base
+        nvidia
+        userspace
+      ];
+
+      boot = {
+        initrd.availableKernelModules = [
+          "ahci"
+          "nvme"
+          "sd_mod"
+          "usb_storage"
+          "usbhid"
+          "xhci_pci"
+        ];
+
+        kernelModules = [ "kvm-intel" ];
+      };
+
+      networking.hostId = "61e6a400";
+      nixpkgs.hostPlatform = "x86_64-linux";
+      system.stateVersion = "25.11";
+    }
+    ```
+  </Step>
+  <Step title="Profiles expand to modules">
+    Each imported profile expands to its list of `nixosModules`. `base` brings in `agenix`, `doas`, `fish`, `nix`, `openssh`, and the rest. `baremetal` brings in `boot`, `zfs`, `stylix`, `tailscale`, and so on.
+  </Step>
+  <Step title="Modules are evaluated together">
+    NixOS merges all imported modules — from profiles, from direct imports, and from host-specific settings — into a single system configuration. Modules declare options; NixOS resolves conflicts and builds the final system.
+  </Step>
+  <Step title="blueprint exposes the result">
+    blueprint registers the evaluated configuration under `nixosConfigurations.hlebak` in the flake outputs, making it available to `nixos-rebuild switch --flake .#hlebak`.
+  </Step>
+</Steps>
+
+## The module system
+
+<CardGroup cols={2}>
+  <Card title="nixosModules" icon="gear">
+    Files in `modules/nixos/` become `flake.nixosModules`. Each is a standard NixOS module — it can declare options, set config values, and reference other modules. They are only active when imported.
+  </Card>
+  <Card title="homeModules" icon="house">
+    Files in `modules/home/` become `flake.homeModules`. Each is a standard Home Manager module scoped to one user. Used in `users/` directories within each host.
+  </Card>
+</CardGroup>
+
+Both module sets use the same `flake` special argument pattern. A module that needs to reference another module (for example, to set an option defined by a sibling module) can access it through `flake.nixosModules` or `flake.homeModules`.
+
+<Info>
+  Because every module lives in its own file and is imported only when needed, it is straightforward to add, remove, or audit any single feature. Searching for `flatpak` in the repository immediately shows the one module file that enables it and the one profile that imports it.
+</Info>
+
+## Secrets layout
+
+The `secrets/` directory pairs encrypted files with a declaration of who can read them:
+
+```nix secrets/secrets.nix
+let
+  user-jel = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIeyqBh/...";
+  host-dreamweaver = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGyWXKJ...";
+  host-hlebak = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOLi8mbX...";
+  host-hydromechanizator = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKpc44dk...";
+  host-wsl = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHu2STpu...";
+
+  baremetal = [ user-jel host-dreamweaver host-hlebak host-hydromechanizator ];
+  server    = [ user-jel host-dreamweaver ];
+  userspace = [ user-jel host-hlebak host-hydromechanizator ];
+  wsl       = [ user-jel host-wsl ];
+in
+{
+  "cloudflared-certificate.age".publicKeys = server;
+  "cloudflared-tunnel-dreamweaver.age".publicKeys = server;
+  "copyparty-admin.age".publicKeys = server;
+  "freenode-je-password.age".publicKeys = userspace;
+  "jel-password.age".publicKeys = baremetal;
+  "wireless-networks.age".publicKeys = baremetal;
+  "wsl-password.age".publicKeys = wsl;
+}
+```
+
+Each secret is encrypted to a group of public keys. Only the listed hosts (and the user key) can decrypt the secret at activation time. See [Secrets](/operations/secrets) for the full workflow.

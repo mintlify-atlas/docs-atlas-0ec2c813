@@ -1,0 +1,345 @@
+---
+title: "Server services"
+description: "Self-hosted services running on the dreamweaver home server — social media, chat, smart home, file sharing, and privacy infrastructure."
+---
+
+The server-services modules configure the self-hosted services that run on `dreamweaver`. All public-facing services are exposed through a single Cloudflare Tunnel; private services are accessible only over Tailscale or the local network.
+
+## Cloudflare Tunnel (`cloudflared.nix`)
+
+All external traffic enters through a single Cloudflare Tunnel. Two age-encrypted secrets are required: the tunnel certificate and the tunnel credentials file.
+
+```nix
+services.cloudflared = {
+  enable          = true;
+  certificateFile = config.age.secrets.cloudflared-certificate.path;
+
+  tunnels."73bc3393-f815-4a60-8f3a-c9d8f6d2e0dc" = {
+    credentialsFile = config.age.secrets.cloudflared-tunnel-dreamweaver.path;
+    default         = "http_status:404";
+  };
+};
+```
+
+Each service module registers its own ingress rule on this tunnel. Requests that do not match any registered hostname return HTTP 404 by default.
+
+<Note>
+  The tunnel ID `73bc3393-f815-4a60-8f3a-c9d8f6d2e0dc` is the dreamweaver tunnel. Service modules reference it directly when adding ingress rules.
+</Note>
+
+## Social and communication
+
+### GoToSocial (`gotosocial.nix`)
+
+GoToSocial is a lightweight ActivityPub server for the Fediverse. It runs at `gts.jel.gay` with the account domain `jel.gay` (so handles look like `@me@jel.gay`). Data and media are stored under `/srv/gotosocial`.
+
+```nix
+services.gotosocial = {
+  enable = true;
+
+  settings = {
+    landing-page-user      = "me";
+    host                   = "gts.jel.gay";
+    account-domain         = "jel.gay";
+    port                   = 8000;
+    db-address             = "/srv/gotosocial/sqlite.db";
+    instance-languages     = [ "en" "pl" ];
+    instance-expose-public-timeline  = true;
+    instance-expose-custom-emojis    = true;
+    instance-inject-mastodon-version = true;
+    instance-stats-mode              = "serve";
+    instance-robots-allow-indexing   = true;
+    storage-local-base-path          = "/srv/gotosocial/storage";
+  };
+};
+```
+
+The Cloudflare ingress rule forwards `gts.jel.gay` to port 8000 on localhost.
+
+### Matrix — tuwunel (`matrix-tuwunel.nix`)
+
+[tuwunel](https://github.com/girlbossceo/tuwunel) is a Conduit-derived Matrix homeserver. It runs with server name `jel.gay` and is reachable at `matrix.jel.gay`. The database lives at `/srv/tuwunel`.
+
+```nix
+services.matrix-tuwunel = {
+  enable = true;
+
+  settings.global = {
+    server_name   = "jel.gay";
+    database_path = "/srv/tuwunel";
+    sentry        = true;
+    sentry_send_server_name    = true;
+    sentry_attach_stacktrace   = true;
+    delete_rooms_after_leave   = true;
+
+    well_known = {
+      client = "https://matrix.jel.gay";
+      server = "matrix.jel.gay:443";
+    };
+  };
+};
+```
+
+The systemd service is granted write access to `/srv/tuwunel` via `ReadWritePaths`.
+
+## Smart home
+
+### Home Assistant (`home-assistant.nix`)
+
+Home Assistant runs at `home.jel.gay` in metric units. It sits behind the Cloudflare Tunnel and trusts the loopback addresses as proxies.
+
+```nix
+services.home-assistant = {
+  enable = true;
+
+  config = {
+    homeassistant.unit_system = "metric";
+
+    http = {
+      use_x_forwarded_for = true;
+      trusted_proxies     = [ "127.0.0.1" "::1" ];
+    };
+  };
+
+  extraComponents = [
+    "default_config"
+    "hue"
+    "ipp"
+    "mobile_app"
+    "music_assistant"
+    "qbittorrent"
+  ];
+
+  openFirewall = true;
+};
+```
+
+The `music_assistant` and `qbittorrent` components connect Home Assistant to the Music Assistant and qBittorrent services running on the same host.
+
+### Music Assistant (`music-assistant.nix`)
+
+Music Assistant provides music library management and playback. It listens on port 8095 and uses local filesystem and Last.fm scrobbling providers.
+
+```nix
+services.music-assistant = {
+  enable = true;
+
+  providers = [
+    "filesystem_local"
+    "lastfm_scrobble"
+  ];
+};
+```
+
+Port 8095 is opened in the firewall for local network access.
+
+## Media and files
+
+### Gonic (`gonic.nix`)
+
+Gonic is a Subsonic-compatible music streaming server exposed at `gonic.jel.gay`. It watches `/srv/gonic/music` for changes and starts a scan at boot.
+
+```nix
+services.gonic = {
+  enable = true;
+
+  settings = {
+    music-path     = "/srv/gonic/music";
+    podcast-path   = "/srv/gonic/podcasts";
+    playlists-path = "/srv/gonic/playlists";
+    scan-at-start-enabled = true;
+    scan-watcher-enabled  = true;
+    jukebox-enabled       = true;
+    expvar                = true;
+  };
+};
+```
+
+### Copyparty (`copyparty.nix`)
+
+Copyparty is a file server exposed at `files.jel.gay`. It uses an age-encrypted admin password and serves several volume paths.
+
+```nix
+services.copyparty = {
+  enable = true;
+  accounts.admin.passwordFile = config.age.secrets.copyparty-admin.path;
+
+  settings = {
+    au-vol  = 100;
+    e2dsa   = true;
+    e2ts    = true;
+    localtime = true;
+    qdel    = 1;
+    rproxy  = 1;
+    ui-filesz = "4c";
+    vc-age  = 1;
+    vc-exit = true;
+    vc-url  = "https://api.copyparty.eu/advisories";
+    ver     = true;
+    xff-hdr = "CF-Connecting-IP";
+    zip-who = 2;
+  };
+
+  volumes = {
+    "/" = { access.A = "admin"; path = "/srv/copyparty"; };
+    "/downloads" = { access.A = "admin"; path = "/srv/qBittorrent/downloads"; };
+    "/gonic" = { access.A = "admin"; path = "/srv/gonic"; };
+    "/public" = { access = { A = "admin"; r = "*"; }; path = "/srv/copyparty/public"; };
+    "/public/unlisted" = {
+      access = { A = "admin"; g = "*"; };
+      path = "/srv/copyparty/public/unlisted";
+    };
+  };
+};
+```
+
+The `/downloads` and `/gonic` volumes expose the qBittorrent download directory and Gonic music library through the same file browser interface. The `/public` volume is readable by everyone; `/public/unlisted` is accessible to anyone who knows the URL.
+
+Port 3923 is opened in the firewall. The module is sourced from the `copyparty` flake input and uses its overlay.
+
+### Etherpad (`etherpad.nix`)
+
+Etherpad runs as an OCI container at `pad.jel.gay` with SQLite storage. Data persists at `/srv/etherpad`.
+
+```nix
+virtualisation.oci-containers.containers.etherpad = {
+  environment = {
+    DB_TYPE     = "sqlite";
+    TRUST_PROXY = "true";
+  };
+
+  image   = "etherpad/etherpad";
+  ports   = [ "9001:9001" ];
+  volumes = [ "/srv/etherpad:/opt/etherpad-lite/var" ];
+};
+```
+
+## Torrenting and P2P
+
+### qBittorrent (`qbittorrent.nix`)
+
+qBittorrent runs as a system service with automatic torrent management enabled. The profile directory is `/srv/` and the torrenting port is 25556.
+
+```nix
+services.qbittorrent = {
+  enable = true;
+  openFirewall = true;
+  profileDir = "/srv/";
+
+  serverConfig = {
+    Application.FileLogger.Enabled = false;
+
+    BitTorrent.Session = {
+      DisableAutoTMMByDefault = false;
+
+      DisableAutoTMMTriggers = {
+        CategorySavePathChanged = false;
+        DefaultSavePathChanged = false;
+      };
+
+      I2P.MixedMode = true;
+      MaxConnections = -1;
+      MaxConnectionsPerTorrent = -1;
+      MaxUploads = -1;
+      MaxUploadsPerTorrent = -1;
+      QueueingSystemEnabled = false;
+    };
+
+    LegalNotice.Accepted = true;
+
+    Preferences = {
+      General.StatusbarExternalIPDisplayed = true;
+      WebUI.LocalHostAuth = false;
+    };
+  };
+
+  torrentingPort = 25556;
+};
+```
+
+The WebUI authentication is bypassed for localhost. Tailscale subnet authentication is configured separately in `tailscale.nix`, restricting WebUI access to the `100.64.0.0/10` and `fd7a:115c:a1e0::/48` ranges. I2P mixed-mode is enabled by the `i2pd.nix` module.
+
+### Kubo — IPFS (`kubo.nix`)
+
+Kubo provides IPFS access. Garbage collection is enabled and the gateway listens on port 5001 on all interfaces.
+
+```nix
+services.kubo = {
+  enable   = true;
+  enableGC = true;
+
+  settings.Addresses.Gateway = [
+    "/ip4/0.0.0.0/tcp/5001"
+    "/ip6/::/tcp/5001"
+  ];
+};
+```
+
+### i2pd (`i2pd.nix`)
+
+i2pd runs as an I2P router with 1 Gbps bandwidth, IPv6 support, UPnP, SAM bridge, and an HTTP proxy on all interfaces. It also enables I2P mode in qBittorrent.
+
+```nix
+services.i2pd = {
+  enable      = true;
+  bandwidth    = 1024;
+  enableIPv6   = true;
+
+  proto = {
+    http = {
+      enable        = true;
+      address       = "0.0.0.0";
+      strictHeaders = false;
+    };
+
+    sam.enable = true;
+  };
+
+  upnp.enable = true;
+};
+
+services.qbittorrent.serverConfig.BitTorrent.Session.I2P.Enabled = true;
+```
+
+## Privacy infrastructure
+
+### Snowflake proxy (`snowflake-proxy.nix`)
+
+Runs a Tor Snowflake pluggable-transport bridge to help censored users access the Tor network.
+
+```nix
+services.snowflake-proxy.enable = true;
+```
+
+## Container runtime
+
+### Docker (`docker.nix`)
+
+Docker is enabled system-wide. The `jel` and `rib` users are members of the `docker` group.
+
+```nix
+virtualisation.docker.enable = true;
+```
+
+## Scheduling
+
+### cron (`cron.nix`)
+
+The system cron daemon is enabled for scheduled tasks.
+
+```nix
+services.cron.enable = true;
+```
+
+## Shell utilities
+
+### moor (`moor.nix`)
+
+`moor` is set as the system-wide pager via `PAGER`.
+
+```nix
+environment = {
+  systemPackages = [ pkgs.moor ];
+  variables.PAGER = "moor";
+};
+```

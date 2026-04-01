@@ -1,0 +1,248 @@
+---
+title: "System"
+description: "NixOS modules for the Nix/Lix toolchain, privilege escalation, user accounts, secrets management, srvos mixins, and system utilities."
+---
+
+The system modules configure the foundational layer shared by all hosts: the Nix evaluator, user accounts, privilege escalation, secrets management, and miscellaneous system utilities.
+
+## Nix configuration (`nix.nix`)
+
+The `nix-command` and `flakes` experimental features are enabled. The Nix store garbage collector runs daily, deleting derivations older than 7 days. Unfree packages are allowed globally. Trusted binary caches are imported from the `srvos` `mixins-trusted-nix-caches` module, which adds the official NixOS cache and common community caches to the trusted substituters list.
+
+```nix
+imports = [ inputs.srvos.nixosModules.mixins-trusted-nix-caches ];
+
+nix = {
+  settings.experimental-features = [ "nix-command" "flakes" ];
+
+  gc = {
+    automatic = true;
+    dates     = "daily";
+    options   = "--delete-older-than 7d";
+  };
+};
+
+nixpkgs.config.allowUnfree = true;
+```
+
+NixOS option documentation generation is disabled to reduce build time.
+
+## Lix (`lix.nix`)
+
+Instead of the upstream Nix implementation, hosts use [Lix](https://lix.systems/) — a community fork focused on correctness and developer experience. The `git` channel of the Lix package set is used.
+
+```nix
+nix.package = pkgs.lixPackageSets.git.lix;
+```
+
+## Privilege escalation — doas (`doas.nix`)
+
+`sudo` is disabled entirely. `doas` is used instead, with a `doas-sudo-shim` package providing a `sudo`-compatible wrapper for tools that call `sudo` directly. The `jel` user is granted passwordless `doas` with environment preservation.
+
+```nix
+environment.systemPackages = [ pkgs.doas-sudo-shim ];
+
+security = {
+  sudo.enable = false;
+
+  doas = {
+    enable = true;
+
+    extraRules = [
+      {
+        users    = [ "jel" ];
+        keepEnv  = true;
+        persist  = true;
+      }
+    ];
+  };
+};
+```
+
+## Users
+
+### Immutable user base (`users.nix`)
+
+`mutableUsers = false` ensures user accounts are fully declarative — no out-of-band `passwd` or `useradd` calls can create persistent state.
+
+```nix
+users.mutableUsers = false;
+```
+
+### jel (`user-jel.nix`)
+
+The primary user account. The password is loaded from an age-encrypted secret. The user belongs to the `docker`, `ipfs`, `networkmanager`, and `wheel` groups. The SSH public key is also authorised for the initrd SSH service so the disk can be unlocked remotely.
+
+```nix
+users.users.jel = {
+  extraGroups = [ "docker" "ipfs" "networkmanager" "wheel" ];
+  hashedPasswordFile = config.age.secrets.jel-password.path;
+  isNormalUser       = true;
+  openssh.authorizedKeys.keys = [ ssh-key ];
+};
+```
+
+### guest (`user-guest.nix`)
+
+A password-less guest account for temporary access. It has no extra groups and no SSH keys.
+
+```nix
+users.users.guest = {
+  hashedPassword = "";
+  isNormalUser   = true;
+};
+```
+
+### rib (`user-rib.nix`)
+
+A secondary user account used on the server. It belongs to `docker`, `networkmanager`, and `wheel` groups. The SSH key is also registered for initrd unlock. Unlike `jel`, `rib` has no password file — access is exclusively via SSH key.
+
+```nix
+users.users.rib = {
+  extraGroups = [
+    "docker"
+    "networkmanager"
+    "wheel"
+  ];
+
+  isNormalUser = true;
+  openssh.authorizedKeys.keys = [ ssh-key ];
+};
+```
+
+## Host name (`host-name.nix`)
+
+The hostname is passed in as a module argument (`hostName`) and applied to `networking.hostName`. Each host configuration in `hosts/` supplies this argument.
+
+```nix
+{ hostName, ... }:
+{
+  networking = {
+    inherit hostName;
+  };
+}
+```
+
+## Location (`location.nix`)
+
+Location is resolved dynamically using GeoClue 2, which feeds into services like GNOME's automatic night light scheduling.
+
+```nix
+location.provider = "geoclue2";
+```
+
+## Power management (`power-management.nix`)
+
+`tuned` manages CPU and I/O performance profiles dynamically. `upower` provides battery and power state information to desktop components. `tlp` is explicitly disabled to avoid conflicts with `tuned`.
+
+```nix
+services = {
+  tlp.enable   = false;
+  tuned.enable = true;
+  upower.enable = true;
+};
+```
+
+## Secrets management — agenix (`agenix.nix`)
+
+The `agenix` NixOS module is imported from the flake input. The `agenix` CLI tool is added to `systemPackages` using the `perSystem` argument, which selects the correct architecture-specific package.
+
+```nix
+imports = [ inputs.agenix.nixosModules.default ];
+environment.systemPackages = [ perSystem.agenix.default ];
+```
+
+All `age.secrets.*` references throughout the module set are decrypted at activation time using the host's SSH host key as the recipient.
+
+## srvos mixins
+
+[srvos](https://github.com/nix-community/srvos) provides opinionated NixOS modules for servers and desktops. Three thin wrapper modules selectively import srvos mixins.
+
+### Server mixin (`srvos-server.nix`)
+
+Imports the `srvos` server module, which applies hardened defaults suitable for headless servers (no X, no documentation, systemd-networkd, etc.).
+
+```nix
+imports = [ inputs.srvos.nixosModules.server ];
+```
+
+### Userspace mixin (`srvos-userspace.nix`)
+
+Imports the `srvos` desktop module and the terminfo mixin for interactive desktop hosts.
+
+```nix
+imports = with inputs.srvos.nixosModules; [
+  desktop
+  mixins-terminfo
+];
+```
+
+### WSL mixin (`srvos-wsl.nix`)
+
+Imports the `srvos` common module for WSL hosts and disables `networkd` (WSL manages networking through Windows).
+
+```nix
+imports = [ inputs.srvos.nixosModules.common ];
+networking.useNetworkd = false;
+```
+
+## WSL (`wsl.nix`)
+
+NixOS-WSL support is provided by the `nixos-wsl` flake input. The default user is `jel`.
+
+```nix
+imports = [ inputs.nixos-wsl.nixosModules.default ];
+
+wsl = {
+  enable      = true;
+  defaultUser = "jel";
+};
+```
+
+## Utilities
+
+### safe-rm (`safe-rm.nix`)
+
+`rm` is aliased to `safe-rm` system-wide to prevent accidental deletion of files outside user-controlled directories.
+
+```nix
+environment = {
+  shellAliases.rm     = "safe-rm";
+  systemPackages      = [ pkgs.safe-rm ];
+};
+```
+
+### fwupd (`fwupd.nix`)
+
+The Linux Vendor Firmware Service daemon is enabled for firmware updates via `fwupdmgr`.
+
+```nix
+services.fwupd.enable = true;
+```
+
+### terminfo (`terminfo.nix`)
+
+The `srvos` terminfo mixin installs a broad set of terminfo entries so modern terminal types (e.g. `xterm-256color`, `ghostty`) are recognised when you SSH into the host.
+
+```nix
+imports = [ inputs.srvos.nixosModules.mixins-terminfo ];
+```
+
+### wget2 (`wget2.nix`)
+
+`wget` is aliased to `wget2`, the actively maintained successor to GNU Wget.
+
+```nix
+environment = {
+  shellAliases.wget  = "wget2";
+  systemPackages     = [ pkgs.wget2 ];
+};
+```
+
+### git (`git.nix`)
+
+Git is enabled system-wide so it is available before any home-manager configuration is applied.
+
+```nix
+programs.git.enable = true;
+```

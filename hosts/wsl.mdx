@@ -1,0 +1,121 @@
+---
+title: "WSL environments"
+description: "Two Windows Subsystem for Linux development environments sharing the wsl NixOS profile — hlebak-wsl and spycharkozrywarka-wsl."
+---
+
+Two WSL NixOS configurations provide development environments running inside Windows Subsystem for Linux. Both share the same `wsl` profile and differ only in hostname and the user's Home Manager configuration.
+
+<CardGroup cols={2}>
+  <Card title="hlebak-wsl" icon="terminal">
+    WSL environment on the `hlebak` Windows host. Includes the `wsl-1password` home profile for 1Password SSH agent integration.
+  </Card>
+  <Card title="spycharkozrywarka-wsl" icon="terminal">
+    WSL environment on a second Windows machine. Uses the minimal `wsl` home profile without 1Password integration.
+  </Card>
+</CardGroup>
+
+## How WSL hosts differ from bare-metal hosts
+
+WSL hosts do not use the `baremetal` profile. They have no bootloader, no display server, no NetworkManager, no ZFS, and no hardware management. Instead, they use the `wsl` profile alongside `base`:
+
+| Feature | Bare-metal hosts | WSL hosts |
+|---------|-----------------|-----------|
+| Bootloader | Limine | None (Windows manages boot) |
+| Networking | NetworkManager | Windows-managed via WSL2 |
+| Display | X server / GNOME | None (or Windows-side X server) |
+| ZFS | ZFS filesystem support | Not applicable |
+| Kernel | Linux (configurable) | Microsoft WSL kernel |
+| `hostId` | Set for ZFS | Not set |
+
+## WSL profile
+
+The `wsl` NixOS profile replaces `baremetal` for these environments:
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.nixosModules; [
+    postgresql
+    srvos-wsl
+    user-jel-wsl
+    wsl
+  ];
+}
+```
+
+- **`postgresql`**: Local PostgreSQL instance for development databases
+- **`srvos-wsl`**: [srvos](https://github.com/nix-community/srvos) WSL integration profile
+- **`user-jel-wsl`**: The `jel` user account configured for WSL (differs from `user-jel` on bare-metal)
+- **`wsl`**: The NixOS WSL module (`nixos-wsl`), which provides the WSL integration layer
+
+## hlebak-wsl
+
+### Configuration
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.nixos-profiles; [
+    base
+    wsl
+  ];
+
+  nixpkgs.hostPlatform = "x86_64-linux";
+  system.stateVersion = "25.11";
+}
+```
+
+### Home Manager — `jel`
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.home-profiles; [
+    base
+    wsl
+    wsl-1password
+  ];
+
+  home.stateVersion = "25.11";
+}
+```
+
+- **`base`**: Core dotfiles — shell, Git, editor, and developer tools
+- **`wsl`**: WSL-specific shell and tool configuration
+- **`wsl-1password`**: Connects the 1Password SSH agent running on the Windows host to the WSL environment
+
+## spycharkozrywarka-wsl
+
+### Configuration
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.nixos-profiles; [
+    base
+    wsl
+  ];
+
+  nixpkgs.hostPlatform = "x86_64-linux";
+  system.stateVersion = "25.11";
+}
+```
+
+### Home Manager — `jel`
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.home-profiles; [
+    base
+    wsl
+  ];
+
+  home.stateVersion = "25.11";
+}
+```
+
+- **`base`**: Core dotfiles — shell, Git, editor, and developer tools
+- **`wsl`**: WSL-specific shell and tool configuration
+
+This configuration omits `wsl-1password` since the Windows host does not run 1Password.

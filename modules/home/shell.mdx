@@ -1,0 +1,236 @@
+---
+title: "Shell & terminal"
+description: "Fish, Nushell, Ghostty, and the CLI utilities that make up the daily shell environment."
+---
+
+All shell and terminal modules are part of the [`base`](/modules/home/overview#base) or [`userspace`](/modules/home/overview#userspace) profiles. The `base` profile ships on every host; `userspace` adds graphical terminal and secondary shell support on desktop machines.
+
+## Fish
+
+Fish is the primary interactive shell. The configuration suppresses the greeting, enables the `informative_vcs` prompt (except over SSH), and applies the Catppuccin Mocha colour theme.
+
+```nix modules/home/fish.nix
+{ inputs, ... }:
+{
+  programs.fish = {
+    enable = true;
+
+    interactiveShellInit = ''
+      set fish_greeting
+
+      if not set -q SSH_TTY
+        fish_config prompt choose informative_vcs
+      end
+
+      fish_config theme choose catppuccin-mocha
+    '';
+  };
+
+  xdg.configFile."fish/themes".source = "${inputs.catppuccin-fish}/themes";
+}
+```
+
+The theme files are sourced directly from the `catppuccin-fish` flake input, so the theme is always the current upstream version without manual updates.
+
+<Note>
+  Fish is not themed by Stylix. The Stylix `fish` target is explicitly disabled (`stylix.targets.fish.enable = false`) to let the Catppuccin Fish theme take full control of colours.
+</Note>
+
+## Nushell
+
+Nushell is enabled as a secondary shell. The startup banner is disabled for a clean first prompt.
+
+```nix modules/home/nushell.nix
+{ ... }:
+{
+  programs.nushell = {
+    enable = true;
+    settings.show_banner = false;
+  };
+}
+```
+
+On Windows-side VS Code, Nushell is set as the default integrated terminal profile.
+
+## Ghostty
+
+Ghostty is the primary terminal emulator on desktop hosts. It is enabled with no additional configuration — all visual styling is delegated to Stylix.
+
+```nix modules/home/ghostty.nix
+{ ... }:
+{
+  programs.ghostty.enable = true;
+}
+```
+
+## bat
+
+`bat` is a `cat` replacement with syntax highlighting and Git integration. A shell alias makes `cat` invoke `bat` everywhere. The pager is set to `moor` with line numbers disabled.
+
+```nix modules/home/bat.nix
+{ lib, pkgs, ... }:
+{
+  home.shellAliases.cat = lib.getExe pkgs.bat;
+
+  programs.bat = {
+    enable = true;
+    config.pager = "moor -no-linenumbers";
+  };
+}
+```
+
+## eza
+
+`eza` is a modern `ls` replacement with colour, icons, and Git status support. It is enabled via the Home Manager module which wires up the standard `ls`/`ll`/`la` aliases automatically.
+
+```nix modules/home/eza.nix
+{ ... }:
+{
+  programs.eza.enable = true;
+}
+```
+
+## ripgrep
+
+ripgrep is enabled for fast recursive content search. No additional configuration is applied — the binary is placed on `PATH` for use in the shell and from within editors.
+
+```nix modules/home/ripgrep.nix
+{ ... }:
+{
+  programs.ripgrep.enable = true;
+}
+```
+
+## delta
+
+delta is a syntax-highlighting diff pager. It is integrated with both Git and Jujutsu so all `diff` and `log` output is rendered through delta automatically.
+
+```nix modules/home/delta.nix
+{ ... }:
+{
+  programs.delta = {
+    enable = true;
+    enableGitIntegration = true;
+    enableJujutsuIntegration = true;
+  };
+}
+```
+
+## htop
+
+htop is configured with a custom header layout showing CPU, memory, ZFS ARC, disk I/O, uptime, load average, and task count. It defaults to tree view.
+
+```nix modules/home/htop.nix
+{ config, ... }:
+{
+  programs.htop = {
+    enable = true;
+
+    settings = {
+      tree_view = 1;
+      header_layout = "one_100";
+    }
+    // (
+      with config.lib.htop;
+      leftMeters [
+        (bar "AllCPUs4")
+        (bar "Memory")
+        (text "ZFSARC")
+        (text "DiskIO")
+        (text "Uptime")
+        (text "LoadAverage")
+        (text "Tasks")
+      ]
+    );
+  };
+}
+```
+
+<Note>
+  `htop` is part of the `baremetal` profile. It is not available in WSL environments.
+</Note>
+
+## bottom
+
+bottom (`btm`) is a cross-platform system monitor. It is enabled with default settings and serves as an alternative to htop when a more visual layout is preferred.
+
+```nix modules/home/bottom.nix
+{ ... }:
+{
+  programs.bottom.enable = true;
+}
+```
+
+## direnv
+
+direnv automatically loads and unloads environment variables when you enter and leave a directory. `nix-direnv` extends this to cache Nix shell environments, so entering a project with a `flake.nix` or `shell.nix` activates the right toolchain instantly. Shell output from direnv is silenced.
+
+```nix modules/home/direnv.nix
+{ ... }:
+{
+  programs.direnv = {
+    enable = true;
+    nix-direnv.enable = true;
+    silent = true;
+  };
+}
+```
+
+## XDG base directories
+
+The `xdg` module configures MIME type associations, autostart entries, and default applications. It registers autostart entries for Telegram and Vesktop, and adds a silent 1Password autostart desktop entry.
+
+```nix modules/home/xdg.nix
+{ perSystem, pkgs, ... }:
+{
+  xdg = {
+    enable = true;
+
+    autostart = {
+      enable = true;
+
+      entries = [
+        "${pkgs.telegram-desktop}/share/applications/org.telegram.desktop.desktop"
+        "${pkgs.vesktop}/share/applications/vesktop.desktop"
+      ];
+    };
+
+    configFile."autostart/1password.desktop".text = ''
+      [Desktop Entry]
+      Type=Application
+      Name=1Password
+      Exec=1password --silent %U
+    '';
+
+    mimeApps = {
+      enable = true;
+
+      defaultApplicationPackages = with pkgs; [
+        zed-editor
+        telegram-desktop
+        tutanota-desktop
+        perSystem.firefox.firefox-nightly-bin
+        onlyoffice-desktopeditors
+        loupe
+        mpv
+      ];
+    };
+  };
+}
+```
+
+Default application associations are derived directly from each package's `.desktop` file, so MIME types stay in sync with the installed package versions.
+
+## Home Manager self-management
+
+The `home-manager` module enables weekly automatic expiry of old Home Manager generations, keeping the Nix store from accumulating stale profiles.
+
+```nix modules/home/home-manager.nix
+{ ... }:
+{
+  services.home-manager.autoExpire = {
+    enable = true;
+    frequency = "weekly";
+  };
+}
+```

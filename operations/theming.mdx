@@ -1,0 +1,110 @@
+---
+title: Theming
+description: System-wide theming with Stylix and Catppuccin Mocha, plus GNOME-specific overrides.
+---
+
+All visual theming is driven by [Stylix](https://github.com/nix-community/stylix), a NixOS/Home Manager module that derives colors, fonts, and wallpapers from a single [base16](https://github.com/tinted-theming/home) color scheme and applies them consistently across every application that has a Stylix target.
+
+The color scheme used throughout this configuration is **Catppuccin Mocha** with dark polarity.
+
+## What Stylix themes automatically
+
+Stylix generates and applies consistent theming to:
+
+- Terminal emulators (color palettes)
+- Text editors with base16 support
+- GTK applications (GTK 2, GTK 3, GTK 4 themes)
+- Qt applications (via kvantum or qt5ct)
+- Firefox (via the Home Manager target)
+- Login screen / display manager
+
+Targets that are disabled — fish and plymouth — are listed below.
+
+## NixOS Stylix module
+
+The system-level module enables Stylix with the Catppuccin Mocha scheme and opts out of the fish and plymouth targets:
+
+```nix
+# modules/nixos/stylix.nix
+{ inputs, pkgs, ... }:
+{
+  imports = [ inputs.stylix.nixosModules.stylix ];
+
+  stylix = {
+    enable = true;
+    base16Scheme = "${pkgs.base16-schemes}/share/themes/catppuccin-mocha.yaml";
+    imageScalingMode = "fit";
+    polarity = "dark";
+
+    targets = {
+      fish.enable = false;
+      plymouth.enable = false;
+    };
+  };
+}
+```
+
+<Note>
+Fish shell theming is disabled here because this configuration uses the [catppuccin-fish](https://github.com/catppuccin/fish) flake input directly, which provides the official Catppuccin Fish theme. Plymouth boot-splash theming is also disabled and handled separately.
+</Note>
+
+This module is included in every baremetal host through the `baremetal` profile (`modules/nixos-profiles/baremetal.nix`).
+
+## Home Manager Stylix module
+
+The Home Manager layer refines which targets are active at the user level. Firefox theming is enabled for the `default` profile; VS Code, Zed, and fish are disabled:
+
+```nix
+# modules/home/stylix.nix
+{ ... }:
+{
+  stylix.targets = {
+    firefox.profileNames = [ "default" ];
+    fish.enable = false;
+    vscode.enable = false;
+    zed.enable = false;
+  };
+}
+```
+
+VS Code and Zed are opted out because their themes are managed by extensions installed separately.
+
+## GNOME-specific overrides
+
+GNOME settings are locked via `dconf` profiles and include overrides that complement the Stylix base theme:
+
+```nix
+# modules/nixos/gnome.nix (excerpt)
+"org/gnome/desktop/interface" = {
+  accent-color = "purple";
+  cursor-theme = "Bibata-Modern-Ice";
+  font-hinting = "none";
+  # ...
+};
+```
+
+| Setting | Value |
+|---|---|
+| Accent color | `purple` |
+| Cursor theme | `Bibata-Modern-Ice` |
+| Font hinting | `none` |
+
+The purple accent aligns with the Catppuccin Mocha mauve/lavender tones. The `Bibata-Modern-Ice` cursor provides a clean, light cursor that contrasts well against the dark scheme.
+
+## Wallpapers
+
+Wallpapers are stored in the `wallpapers/` directory at the repository root. GNOME uses the [AzWallpaper](https://github.com/azwallpaper/azwallpaper) extension configured to rotate through that directory on a daily schedule:
+
+```nix
+"org/gnome/shell/extensions/azwallpaper" = {
+  slideshow-directory = "${../../wallpapers}";
+
+  slideshow-slide-duration = lib.gvariant.mkTuple (
+    map lib.gvariant.mkInt32 [ 1 0 0 ]
+  );
+
+  slideshow-use-absolute-time-for-duration = true;
+};
+```
+
+The path `../../wallpapers` is resolved at build time to the Nix store path of the wallpapers directory, so the slideshow source is immutable and version-controlled alongside the rest of the configuration.

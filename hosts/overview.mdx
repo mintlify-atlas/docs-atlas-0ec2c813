@@ -1,0 +1,43 @@
+---
+title: "Hosts overview"
+description: "All machines managed by this NixOS flake — desktops, a home server, and WSL development environments."
+---
+
+This flake manages five NixOS configurations across four physical or virtual machines. Each host composes a set of [NixOS profiles](/structure) that layer system-wide behaviour — from boot and networking to desktop applications and server services.
+
+## Managed hosts
+
+| Host | Role | Platform | Profiles |
+|------|------|----------|----------|
+| `hlebak` | Desktop workstation | `x86_64-linux` | `baremetal`, `base`, `nvidia`, `userspace` |
+| `hydromechanizator` | Laptop | `x86_64-linux` | `baremetal`, `base`, `framework-16-7040-amd`, `latest-zfs-kernel`, `userspace` |
+| `dreamweaver` | Home server | `x86_64-linux` | `baremetal`, `base`, `latest-zfs-kernel`, `server` |
+| `hlebak-wsl` | WSL environment | `x86_64-linux` | `base`, `wsl` |
+| `spycharkozrywarka-wsl` | WSL environment | `x86_64-linux` | `base`, `wsl` |
+
+<CardGroup cols={2}>
+  <Card title="hlebak" icon="desktop" href="/hosts/hlebak">
+    Desktop workstation with NVIDIA GPU, GNOME, and the full userspace profile.
+  </Card>
+  <Card title="hydromechanizator" icon="laptop" href="/hosts/hydromechanizator">
+    Framework 16 AMD laptop with ZFS kernel and Framework-specific hardware configuration.
+  </Card>
+  <Card title="dreamweaver" icon="server" href="/hosts/dreamweaver">
+    Home server running GoToSocial, Matrix, Home Assistant, and other self-hosted services.
+  </Card>
+  <Card title="WSL environments" icon="terminal" href="/hosts/wsl">
+    Two Windows Subsystem for Linux development environments sharing the `wsl` profile.
+  </Card>
+</CardGroup>
+
+## Profile composition
+
+Every host imports at least the `base` profile, which provides the Nix toolchain, user management, SSH, and shell configuration. Bare-metal hosts additionally import `baremetal` for boot, networking, display, and ZFS support. Desktops and laptops layer `userspace` for GNOME, audio, and application packages. The home server uses `server` for self-hosted services, and WSL hosts use the `wsl` profile instead of `baremetal`.
+
+```
+base          ← all hosts
+baremetal     ← physical machines (hlebak, hydromechanizator, dreamweaver)
+userspace     ← interactive desktops (hlebak, hydromechanizator)
+server        ← self-hosted services (dreamweaver)
+wsl           ← Windows Subsystem for Linux (hlebak-wsl, spycharkozrywarka-wsl)
+```

@@ -1,97 +1,46 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "nix-configuration"
+description: "A personal NixOS flake managing multiple hosts — desktops, a server, and WSL environments — with declarative theming, secret management, and self-hosted services."
 ---
 
-## Setting up
+This is a personal NixOS configuration built with [Nix Flakes](https://nixos.wiki/wiki/Flakes) and the [blueprint](https://github.com/numtide/blueprint) framework. It manages several machines — a desktop workstation, a laptop, a home server, and WSL environments — through a single, composable repository.
 
-Get your documentation site up and running in minutes.
+Configuration is fully declarative: from system-wide [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) theming via [Stylix](https://github.com/nix-community/stylix), to per-user dotfiles via [Home Manager](https://github.com/nix-community/home-manager), to encrypted secrets via [agenix](https://github.com/ryantm/agenix).
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Structure" icon="folder-tree" href="/structure">
+    Understand how the repository is organized — flake inputs, hosts, modules, and profiles
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Hosts" icon="server" href="/hosts/overview">
+    Explore each managed machine: desktops, server, and WSL environments
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="NixOS Modules" icon="puzzle-piece" href="/modules/nixos/desktop">
+    Composable NixOS modules for desktop, server services, networking, and storage
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Home Manager" icon="house" href="/modules/home/overview">
+    Per-user configuration for shell, applications, and developer tools
   </Card>
-</Columns>
+  <Card title="Secrets" icon="lock" href="/operations/secrets">
+    How age-encrypted secrets are managed with agenix
+  </Card>
+  <Card title="Theming" icon="palette" href="/operations/theming">
+    System-wide Catppuccin Mocha theming via Stylix
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## Getting started
 
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Understand the structure">
+    Read the [structure overview](/structure) to learn how hosts, profiles, and modules fit together.
+  </Step>
+  <Step title="Explore the hosts">
+    See the [hosts overview](/hosts/overview) for a breakdown of every managed machine and its role.
+  </Step>
+  <Step title="Bootstrap a new host">
+    Follow the [bootstrap guide](/operations/bootstrap) to add the configuration to a new NixOS machine.
+  </Step>
+  <Step title="Manage secrets">
+    Learn how to add and rotate encrypted secrets in the [secrets guide](/operations/secrets).
+  </Step>
+</Steps>

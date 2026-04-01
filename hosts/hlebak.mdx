@@ -1,0 +1,144 @@
+---
+title: "hlebak"
+description: "The primary desktop workstation — bare-metal x86_64-linux with an NVIDIA GPU, GNOME, and the full userspace profile."
+---
+
+`hlebak` is the main desktop workstation. It runs NixOS bare-metal on `x86_64-linux` with an Intel CPU, an NVIDIA GPU, and the complete interactive userspace stack including GNOME, audio via PipeWire, Steam, Docker, and 1Password.
+
+## Profiles
+
+`hlebak` imports four NixOS profiles:
+
+<AccordionGroup>
+  <Accordion title="base" icon="cube">
+    The foundation of every host. Enables:
+
+    - **Nix toolchain**: Lix (the Nix implementation), flake support, and `nix-ld` for dynamic linker compatibility
+    - **Shell**: Fish shell with system-wide configuration
+    - **User management**: Declarative user accounts via the `users` module
+    - **Privilege escalation**: `doas` instead of `sudo`
+    - **Secrets**: `agenix` for age-encrypted secret management
+    - **Remote access**: OpenSSH server
+    - **Tools**: `git`, `wget2`, `safe-rm`, `moor`
+    - **Host identity**: Hostname set from the directory name via `host-name`
+  </Accordion>
+  <Accordion title="baremetal" icon="microchip">
+    Hardware and display configuration for physical machines. Enables:
+
+    - **Boot**: Limine bootloader with Plymouth boot splash
+    - **Display**: X server and `kmscon` for kernel-mode console
+    - **Networking**: NetworkManager and NTP time synchronisation
+    - **Firewall** and **DNS** configuration
+    - **Storage**: ZFS filesystem support
+    - **Hardware**: `fwupd` firmware updates, hardware-specific tuning
+    - **Power management** and system suspend
+    - **Services**: Tailscale VPN, PostgreSQL, Terminfo
+    - **Theming**: Stylix (Catppuccin Mocha system-wide theme)
+    - **User**: `user-jel` system account
+  </Accordion>
+  <Accordion title="nvidia" icon="display">
+    NVIDIA GPU driver and integration. Delegates entirely to the `nvidia` NixOS module, which enables the proprietary NVIDIA driver and configures hardware acceleration.
+  </Accordion>
+  <Accordion title="userspace" icon="window">
+    Interactive desktop environment and applications. Enables:
+
+    - **Desktop**: GNOME Shell
+    - **Audio**: PipeWire with full session management
+    - **Applications**: 1Password, VSCode, OBS Studio, Halloy (IRC client), Flatpak
+    - **Gaming**: Steam
+    - **Productivity**: Printing support, virtual filesystem via gvfs and udisks2
+    - **AI**: Ollama local LLM runtime
+    - **Containers**: Docker
+    - **srvos userspace** integration
+    - **User**: `user-guest` guest account
+  </Accordion>
+</AccordionGroup>
+
+## Kernel and boot configuration
+
+`hlebak` loads the following kernel modules at initrd and runtime:
+
+```nix
+boot = {
+  initrd.availableKernelModules = [
+    "ahci"
+    "nvme"
+    "sd_mod"
+    "usb_storage"
+    "usbhid"
+    "xhci_pci"
+  ];
+
+  kernelModules = [ "kvm-intel" ];
+};
+```
+
+`kvm-intel` enables hardware-accelerated virtualisation on the Intel CPU. The initrd modules cover AHCI SATA, NVMe, USB storage, and USB HID devices required for early boot.
+
+## Platform and state version
+
+```nix
+networking.hostId = "61e6a400";
+nixpkgs.hostPlatform = "x86_64-linux";
+system.stateVersion = "25.11";
+```
+
+The `hostId` uniquely identifies this machine for ZFS pool import. The `stateVersion` pins the NixOS state format to 25.11 and should not change after initial installation.
+
+## Users
+
+### NixOS user — `jel`
+
+The system account is provided by the `baremetal` profile's `user-jel` module. No additional NixOS-level user configuration is required in the host file.
+
+### Home Manager — `jel`
+
+The per-user Home Manager configuration at `hosts/hlebak/users/jel.nix` imports three home profiles:
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.home-profiles; [
+    baremetal
+    base
+    userspace
+  ];
+
+  home.stateVersion = "25.11";
+}
+```
+
+- **`base`**: Core dotfiles — shell, Git, editor, and developer tools
+- **`baremetal`**: Additional configuration for physical machines (display, hardware integrations)
+- **`userspace`**: Application configuration for GNOME, audio, and desktop apps
+
+## Full configuration
+
+```nix
+{ flake, ... }:
+{
+  imports = with flake.modules.nixos-profiles; [
+    baremetal
+    base
+    nvidia
+    userspace
+  ];
+
+  boot = {
+    initrd.availableKernelModules = [
+      "ahci"
+      "nvme"
+      "sd_mod"
+      "usb_storage"
+      "usbhid"
+      "xhci_pci"
+    ];
+
+    kernelModules = [ "kvm-intel" ];
+  };
+
+  networking.hostId = "61e6a400";
+  nixpkgs.hostPlatform = "x86_64-linux";
+  system.stateVersion = "25.11";
+}
+```
